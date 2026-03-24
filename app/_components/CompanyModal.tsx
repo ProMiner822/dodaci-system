@@ -12,7 +12,7 @@ interface CompanyModalProps {
 }
 
 const inputClasses =
-  "w-full min-h-[44px] rounded-lg border bg-surface px-3 py-3 text-base transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
+  "w-full min-h-[44px] rounded-lg border bg-surface px-3 py-3 text-base text-foreground placeholder:text-muted transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -101,7 +101,7 @@ export default function CompanyModal({
   return (
     <dialog
       ref={dialogRef}
-      className="mx-auto w-full max-w-md rounded-xl bg-surface shadow-xl"
+      className="dialog-bottom-sheet w-full max-w-md rounded-t-2xl bg-surface text-foreground shadow-xl lg:rounded-2xl"
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -110,7 +110,13 @@ export default function CompanyModal({
         if (e.target === dialogRef.current) onClose();
       }}
     >
-      <div className="max-h-[90vh] overflow-y-auto p-5 sm:p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Handle bar (mobile) */}
+        <div className="flex justify-center pt-3 lg:hidden">
+          <div className="h-1 w-10 rounded-full bg-border" />
+        </div>
+
+        <div className="p-5 sm:p-6">
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">
@@ -261,14 +267,14 @@ export default function CompanyModal({
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
-                  className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-border/30"
+                  className="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-border/30"
                 >
                   Zrušiť
                 </button>
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="rounded-lg bg-danger px-2.5 py-1.5 text-sm font-bold text-white transition-colors hover:bg-danger/90"
+                  className="min-h-[44px] rounded-lg bg-danger px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-danger/90"
                 >
                   Odstrániť
                 </button>
@@ -293,9 +299,10 @@ export default function CompanyModal({
           </div>
         </div>
 
-        <p className="mt-3 text-center text-xs text-muted">
+        <p className="mt-3 hidden text-center text-xs text-muted sm:block">
           {"\u2318"}Enter na uloženie &middot; Esc na zatvorenie
         </p>
+        </div>
       </div>
     </dialog>
   );

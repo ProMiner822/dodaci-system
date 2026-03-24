@@ -65,7 +65,7 @@ export default function ActionBar({
               type="button"
               onClick={onGeneratePDF}
               disabled={isGeneratingPDF}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-alt focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] sm:px-2.5 sm:text-sm"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-alt focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] sm:px-2.5 sm:text-sm"
             >
               {isGeneratingPDF ? (
                 <Spinner size="sm" />
@@ -129,10 +129,10 @@ export default function ActionBar({
           <button
             type="button"
             onClick={onLogout}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted transition-colors hover:bg-surface-alt hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:px-2.5 sm:text-sm"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted transition-colors hover:bg-surface-alt hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:px-2.5 sm:text-sm"
           >
             <svg
-              className="h-3.5 w-3.5 shrink-0"
+              className="h-4 w-4 shrink-0"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light dark;
   --background: #f5f5f5;
   --foreground: #111111;
   --surface: #ffffff;
@@ -22,7 +23,7 @@
 /* Dark theme: auto (system preference) or manual override */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: #0a0a0a;
+    --background: #121212;
     --foreground: #e5e5e5;
     --surface: #171717;
     --surface-alt: #1c1c1c;
@@ -170,19 +171,40 @@
     }
   }
 
-  /* View Transition animations */
+  /* View Transition animations — directional */
   ::view-transition-old(root) {
-    animation: 150ms ease-out both fade-out;
+    animation: 150ms ease-out both vt-slide-out;
   }
   ::view-transition-new(root) {
-    animation: 150ms ease-in both fade-in;
+    animation: 150ms ease-in both vt-slide-in;
   }
 
-  @keyframes fade-out {
-    to { opacity: 0; }
+  /* Back navigation (set via data-vt-back on <html>) */
+  :root[data-vt-back] ::view-transition-old(root) {
+    animation-name: vt-slide-out-reverse;
   }
-  @keyframes fade-in {
-    from { opacity: 0; }
+  :root[data-vt-back] ::view-transition-new(root) {
+    animation-name: vt-slide-in-reverse;
+  }
+
+  @keyframes vt-slide-out {
+    to { opacity: 0; transform: translateX(-4%); }
+  }
+  @keyframes vt-slide-in {
+    from { opacity: 0; transform: translateX(4%); }
+  }
+  @keyframes vt-slide-out-reverse {
+    to { opacity: 0; transform: translateX(4%); }
+  }
+  @keyframes vt-slide-in-reverse {
+    from { opacity: 0; transform: translateX(-4%); }
+  }
+
+  summary:focus,
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
   }
 
   @media print {

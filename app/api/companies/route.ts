@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { getCompanies, saveCompanies } from "@/lib/storage";
-import { defaultCompanies } from "@/lib/constants";
 
 export async function GET() {
   try {
     const companies = await getCompanies();
-    return NextResponse.json(companies.length > 0 ? companies : defaultCompanies);
+    return NextResponse.json(companies);
   } catch (error) {
     console.error("GET COMPANIES ERROR:", error instanceof Error ? error.message : error);
-    return NextResponse.json(defaultCompanies);
+    return NextResponse.json([]);
   }
 }
 

@@ -156,7 +156,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ addToast, removeToast }}>
       {children}
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 flex flex-col gap-2 p-3 sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-sm sm:p-0"
+        className="fixed bottom-20 left-0 right-0 z-50 flex flex-col gap-2 p-3 lg:bottom-4 lg:left-auto lg:right-4 lg:max-w-sm lg:p-0"
         aria-live="polite"
         role="status"
       >

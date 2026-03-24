@@ -8,6 +8,8 @@ interface StickyBottomBarProps {
   totalWithVat: number;
   onSend: () => void;
   canSend: boolean;
+  hasSignature: boolean;
+  hasEmail: boolean;
 }
 
 export default function StickyBottomBar({
@@ -16,14 +18,30 @@ export default function StickyBottomBar({
   totalWithVat,
   onSend,
   canSend,
+  hasSignature,
+  hasEmail,
 }: StickyBottomBarProps) {
+  const missingHint = !canSend
+    ? quantity <= 0
+      ? "Zadajte počet kusov"
+      : !hasSignature
+        ? "Chýba podpis"
+        : !hasEmail
+          ? "Chýba email"
+          : ""
+    : "";
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 pb-[env(safe-area-inset-bottom,0px)] shadow-[0_-2px_10px_rgba(0,0,0,0.08)] lg:hidden">
       <div className="flex h-16 items-center gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-sm text-muted">
-            {quantity} ks{freeQuantity > 0 ? ` + ${freeQuantity} grátis` : ""}
-          </div>
+          {missingHint ? (
+            <div className="text-xs font-medium text-danger">{missingHint}</div>
+          ) : (
+            <div className="text-sm text-muted">
+              {quantity} ks{freeQuantity > 0 ? ` + ${freeQuantity} grátis` : ""}
+            </div>
+          )}
           <div className="text-lg font-bold leading-tight">{formatEUR(totalWithVat)}</div>
         </div>
         <button
@@ -36,7 +54,7 @@ export default function StickyBottomBar({
             <line x1="22" y1="2" x2="11" y2="13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
-          Odoslať
+          Skontrolovať
         </button>
       </div>
     </div>

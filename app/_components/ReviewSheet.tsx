@@ -121,7 +121,7 @@ export default function ReviewSheet({
                 <img
                   src={signatureData}
                   alt="Podpis"
-                  className="ml-auto h-8 w-20 rounded border border-border object-contain bg-white"
+                  className="ml-auto h-8 w-20 rounded border border-border object-contain bg-paper"
                 />
               </div>
             )}
@@ -129,7 +129,7 @@ export default function ReviewSheet({
 
           {/* Preview (scaled down) */}
           <details className="mt-4">
-            <summary className="cursor-pointer text-sm font-medium text-accent">
+            <summary className="marker:hidden list-none cursor-pointer rounded-lg px-3 py-2 text-sm font-medium text-accent outline-none [&::-webkit-details-marker]:hidden">
               Zobraziť náhľad dokumentu
             </summary>
             <div className="mt-3 overflow-hidden rounded-lg border border-border" style={{ height: 842 * 0.45 + 16 }}>

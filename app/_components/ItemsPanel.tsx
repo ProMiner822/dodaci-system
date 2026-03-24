@@ -38,7 +38,7 @@ export default function ItemsPanel({
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const inputClass = (field: string) =>
-    `w-full min-h-[44px] rounded-lg border bg-surface px-3 py-3 text-base transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 ${
+    `w-full min-h-[44px] rounded-lg border bg-surface px-3 py-3 text-base text-foreground placeholder:text-muted transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 ${
       errors[field] ? "border-danger" : "border-border"
     }`;
 
@@ -71,78 +71,97 @@ export default function ItemsPanel({
         <button
           type="button"
           onClick={() => setDetailsOpen(!detailsOpen)}
-          className="flex w-full items-center justify-between text-sm font-bold text-muted"
+          className="flex w-full min-h-[44px] items-center justify-between text-sm font-bold text-muted"
+          aria-expanded={detailsOpen}
         >
           <span>Podrobnosti</span>
-          <span>{detailsOpen ? "▲" : "▼"}</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className={`transition-transform duration-200 ${detailsOpen ? "rotate-180" : ""}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
 
-        {detailsOpen && (
-          <div className="mt-3 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label htmlFor="delivery-number" className="mb-1.5 block text-sm font-bold">
-                  Číslo dodacieho listu
-                </label>
-                <input
-                  id="delivery-number"
-                  className={inputClass("deliveryNumber")}
-                  value={deliveryNumber}
-                  onChange={(e) => onDeliveryNumberChange(e.target.value)}
-                  aria-invalid={!!errors.deliveryNumber}
-                  aria-describedby={errors.deliveryNumber ? "delivery-number-error" : undefined}
-                />
-                {errors.deliveryNumber && (
-                  <span id="delivery-number-error" role="alert" className="mt-1 block text-xs text-danger">
-                    {errors.deliveryNumber}
-                  </span>
-                )}
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-out"
+          style={{ gridTemplateRows: detailsOpen ? "1fr" : "0fr" }}
+        >
+          <div className="overflow-hidden">
+            <div className="pt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="delivery-number" className="mb-1.5 block text-sm font-bold">
+                    Číslo dodacieho listu
+                  </label>
+                  <input
+                    id="delivery-number"
+                    className={inputClass("deliveryNumber")}
+                    value={deliveryNumber}
+                    onChange={(e) => onDeliveryNumberChange(e.target.value)}
+                    aria-invalid={!!errors.deliveryNumber}
+                    aria-describedby={errors.deliveryNumber ? "delivery-number-error" : undefined}
+                  />
+                  {errors.deliveryNumber && (
+                    <span id="delivery-number-error" role="alert" className="mt-1 block text-xs text-danger">
+                      {errors.deliveryNumber}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="delivery-date" className="mb-1.5 block text-sm font-bold">
+                    Dátum
+                  </label>
+                  <input
+                    id="delivery-date"
+                    type="date"
+                    className={inputClass("date")}
+                    value={date}
+                    onChange={(e) => onDateChange(e.target.value)}
+                  />
+                  {date && <span className="mt-1 block text-xs text-muted">{formatDateSK(date)}</span>}
+                </div>
               </div>
 
               <div>
-                <label htmlFor="delivery-date" className="mb-1.5 block text-sm font-bold">
-                  Dátum
+                <label htmlFor="price-with-vat" className="mb-1.5 block text-sm font-bold">
+                  Cena za kus s DPH
                 </label>
                 <input
-                  id="delivery-date"
-                  type="date"
-                  className={inputClass("date")}
-                  value={date}
-                  onChange={(e) => onDateChange(e.target.value)}
+                  id="price-with-vat"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  className={inputClass("priceWithVat")}
+                  value={priceWithVat || ""}
+                  onChange={(e) => onPriceChange(e.target.value === "" ? 0 : Number(e.target.value))}
                 />
-                {date && <span className="mt-1 block text-xs text-muted">{formatDateSK(date)}</span>}
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="price-with-vat" className="mb-1.5 block text-sm font-bold">
-                Cena za kus s DPH
-              </label>
-              <input
-                id="price-with-vat"
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                className={inputClass("priceWithVat")}
-                value={priceWithVat || ""}
-                onChange={(e) => onPriceChange(e.target.value === "" ? 0 : Number(e.target.value))}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="note" className="mb-1.5 block text-sm font-bold">
-                Poznámka
-              </label>
-              <input
-                id="note"
-                className={inputClass("note")}
-                value={note}
-                onChange={(e) => onNoteChange(e.target.value)}
-                placeholder="Poznámka k dodávke..."
-              />
+              <div>
+                <label htmlFor="note" className="mb-1.5 block text-sm font-bold">
+                  Poznámka
+                </label>
+                <input
+                  id="note"
+                  className={inputClass("note")}
+                  value={note}
+                  onChange={(e) => onNoteChange(e.target.value)}
+                  placeholder="Poznámka k dodávke..."
+                />
+              </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

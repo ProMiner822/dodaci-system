@@ -22,8 +22,14 @@ export default function QuantityStepper({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+
+  function haptic() {
+    navigator.vibrate?.(10);
+  }
 
   const stopRepeat = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -37,12 +43,13 @@ export default function QuantityStepper({
       stopRepeat();
       timeoutRef.current = setTimeout(() => {
         intervalRef.current = setInterval(() => {
-          onChange(Math.max(min, value + delta));
-          value += delta;
+          const next = Math.max(min, valueRef.current + delta);
+          onChange(next);
+          haptic();
         }, 100);
       }, 400);
     },
-    [onChange, min, value, stopRepeat],
+    [onChange, min, stopRepeat],
   );
 
   function startEditing() {
@@ -75,7 +82,7 @@ export default function QuantityStepper({
       <div className="flex items-center justify-center gap-4 sm:gap-6">
         <button
           type="button"
-          onClick={() => onChange(Math.max(min, value - 1))}
+          onClick={() => { onChange(Math.max(min, value - 1)); haptic(); }}
           onPointerDown={() => startRepeat(-1)}
           onPointerUp={stopRepeat}
           onPointerLeave={stopRepeat}
@@ -114,7 +121,7 @@ export default function QuantityStepper({
 
         <button
           type="button"
-          onClick={() => onChange(value + 1)}
+          onClick={() => { onChange(value + 1); haptic(); }}
           onPointerDown={() => startRepeat(1)}
           onPointerUp={stopRepeat}
           onPointerLeave={stopRepeat}

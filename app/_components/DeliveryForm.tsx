@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { Company } from "@/lib/types";
-import { supplier, defaultCompanies, VAT_RATE, DEFAULT_NOTE, STORAGE_KEYS } from "@/lib/constants";
+import { supplier, VAT_RATE, DEFAULT_NOTE, STORAGE_KEYS } from "@/lib/constants";
 import { todayISO } from "@/lib/formatting";
 import { calculateDeliveryPrices } from "@/lib/calculations";
 import ActionBar from "./ActionBar";
@@ -135,12 +135,12 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
 function getInitialState(): DeliveryState {
   return {
     screen: "customer-select",
-    companies: defaultCompanies,
-    selectedCompanyId: "1",
+    companies: [],
+    selectedCompanyId: "",
     deliveryNumber: "",
     date: todayISO(),
-    customerName: defaultCompanies[0].name,
-    customerEmail: defaultCompanies[0].email,
+    customerName: "",
+    customerEmail: "",
     quantity: 0,
     freeQuantity: 0,
     note: DEFAULT_NOTE,
@@ -158,6 +158,7 @@ export default function DeliveryForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedRef = useRef(false);
   const { addToast } = useToast();
@@ -227,12 +228,28 @@ export default function DeliveryForm() {
       }
 
       hasLoadedRef.current = true;
+      setIsLoading(false);
     }
 
     init();
   }, []);
 
-  // Auto-save to localStorage with debounce
+  // Save companies to server immediately when they change
+  const companiesJsonRef = useRef("");
+  useEffect(() => {
+    if (!hasLoadedRef.current) return;
+    const json = JSON.stringify(state.companies);
+    if (json === companiesJsonRef.current) return;
+    companiesJsonRef.current = json;
+
+    fetch("/api/companies", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: json,
+    }).catch((err) => console.error("Failed to save companies:", err));
+  }, [state.companies]);
+
+  // Auto-save form draft to localStorage with debounce
   useEffect(() => {
     if (!hasLoadedRef.current) return;
 
@@ -240,7 +257,6 @@ export default function DeliveryForm() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     saveTimerRef.current = setTimeout(() => {
-      // Save form draft to localStorage
       localStorage.setItem(STORAGE_KEYS.form, JSON.stringify({
         selectedCompanyId: state.selectedCompanyId,
         deliveryNumber: state.deliveryNumber,
@@ -252,25 +268,20 @@ export default function DeliveryForm() {
         note: state.note,
         signatureData: state.signatureData,
       }));
-      // Save companies to server (fire and forget)
-      fetch("/api/companies", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state.companies),
-      }).catch(() => {});
       setSaveStatus("saved");
     }, 2000);
 
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [state.companies, state.selectedCompanyId, state.deliveryNumber, state.date, state.customerName, state.customerEmail, state.quantity, state.freeQuantity, state.note, state.signatureData]);
+  }, [state.selectedCompanyId, state.deliveryNumber, state.date, state.customerName, state.customerEmail, state.quantity, state.freeQuantity, state.note, state.signatureData]);
 
   // Warn before tab close if form has data
   useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {
       if (state.quantity > 0 || state.signatureData) {
         e.preventDefault();
+        e.returnValue = "";
       }
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -458,13 +469,15 @@ export default function DeliveryForm() {
       const data = await res.json();
       if (data.number) number = data.number;
     } catch { /* use fallback */ }
-    viewTransition(() => dispatch({ type: "RESET_FORM", deliveryNumber: number }));
+    viewTransition(() => dispatch({ type: "RESET_FORM", deliveryNumber: number }), true);
   }
 
   // Wrap screen-changing dispatches with View Transitions API
-  function viewTransition(update: () => void) {
+  function viewTransition(update: () => void, back = false) {
     if (document.startViewTransition) {
-      document.startViewTransition(() => flushSync(update));
+      if (back) document.documentElement.setAttribute("data-vt-back", "");
+      const t = document.startViewTransition(() => flushSync(update));
+      t.finished.then(() => document.documentElement.removeAttribute("data-vt-back"));
     } else {
       update();
     }
@@ -505,7 +518,7 @@ export default function DeliveryForm() {
         onGeneratePDF={generatePDF}
         onSendEmail={handleSendClick}
         onLogout={handleLogout}
-        onLogoClick={() => dispatch({ type: "SET_SCREEN", screen: "customer-select" })}
+        onLogoClick={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }), true)}
         canSendEmail={!!state.signatureData && !!state.customerEmail}
         isSendingEmail={isSendingEmail}
         isGeneratingPDF={isGeneratingPDF}
@@ -517,7 +530,7 @@ export default function DeliveryForm() {
         {state.screen === "customer-select" ? (
           <CustomerSelect
             companies={state.companies}
-            selectedCompanyId={state.selectedCompanyId}
+            isLoading={isLoading}
             onSelect={handleSelectCompany}
             onAddCompany={(data) =>
               dispatch({
@@ -555,7 +568,7 @@ export default function DeliveryForm() {
               <CompanyPanel
                 customerName={state.customerName}
                 customerEmail={state.customerEmail}
-                onChangeCompany={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }))}
+                onChangeCompany={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }), true)}
               />
 
               <ItemsPanel
@@ -605,6 +618,8 @@ export default function DeliveryForm() {
           totalWithVat={calculations.totalWithVat}
           onSend={handleSendClick}
           canSend={!!state.signatureData && !!state.customerEmail && state.quantity > 0}
+          hasSignature={!!state.signatureData}
+          hasEmail={!!state.customerEmail}
         />
       )}
 

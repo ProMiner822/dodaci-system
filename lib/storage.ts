@@ -1,4 +1,4 @@
-import { put, head, list } from "@vercel/blob";
+import { put, head } from "@vercel/blob";
 import type { Company } from "./types";
 
 const COMPANIES_KEY = "dodaci-system/companies.json";
@@ -14,13 +14,20 @@ export interface HistoryEntry {
   sentAt: string;
 }
 
+async function readBlob<T>(key: string): Promise<T | null> {
+  const blob = await head(key);
+  const res = await fetch(blob.url, {
+    headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 // --- Companies ---
 
 export async function getCompanies(): Promise<Company[]> {
   try {
-    const blob = await head(COMPANIES_KEY);
-    const res = await fetch(blob.url);
-    return await res.json();
+    return (await readBlob<Company[]>(COMPANIES_KEY)) ?? [];
   } catch {
     return [];
   }
@@ -28,8 +35,9 @@ export async function getCompanies(): Promise<Company[]> {
 
 export async function saveCompanies(companies: Company[]): Promise<void> {
   await put(COMPANIES_KEY, JSON.stringify(companies), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 }
 
@@ -37,9 +45,7 @@ export async function saveCompanies(companies: Company[]): Promise<void> {
 
 export async function getHistory(): Promise<HistoryEntry[]> {
   try {
-    const blob = await head(HISTORY_KEY);
-    const res = await fetch(blob.url);
-    return await res.json();
+    return (await readBlob<HistoryEntry[]>(HISTORY_KEY)) ?? [];
   } catch {
     return [];
   }
@@ -49,8 +55,9 @@ export async function addHistory(entry: HistoryEntry): Promise<void> {
   const history = await getHistory();
   history.unshift(entry);
   await put(HISTORY_KEY, JSON.stringify(history.slice(0, 100)), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 }
 
@@ -72,9 +79,7 @@ export async function nextDeliveryNumber(): Promise<string> {
 
   let counter: CounterData = { date: dateKey, count: 0 };
   try {
-    const blob = await head(COUNTER_KEY);
-    const res = await fetch(blob.url);
-    counter = await res.json();
+    counter = (await readBlob<CounterData>(COUNTER_KEY)) ?? counter;
   } catch {
     // First time — start fresh
   }
@@ -82,8 +87,9 @@ export async function nextDeliveryNumber(): Promise<string> {
   const nextCount = counter.date === dateKey ? counter.count + 1 : 1;
 
   await put(COUNTER_KEY, JSON.stringify({ date: dateKey, count: nextCount }), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 
   return `DL-${dateKey}-${String(nextCount).padStart(3, "0")}`;
