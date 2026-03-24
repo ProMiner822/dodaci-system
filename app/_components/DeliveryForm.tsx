@@ -467,6 +467,11 @@ export default function DeliveryForm() {
     }
   }
 
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
   function resetForm() {
     dispatch({ type: "RESET_FORM", deliveryNumber: nextDeliveryNumber() });
     addToast("Nový dodací list pripravený", "success");
@@ -497,6 +502,7 @@ export default function DeliveryForm() {
         onSave={saveToLocalStorage}
         onGeneratePDF={generatePDF}
         onSendEmail={sendByEmail}
+        onLogout={handleLogout}
         canSendEmail={!!state.signatureData && !!state.customerEmail}
         isSendingEmail={isSendingEmail}
         isGeneratingPDF={isGeneratingPDF}

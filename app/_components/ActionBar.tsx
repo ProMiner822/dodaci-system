@@ -4,6 +4,7 @@ interface ActionBarProps {
   onSave: () => void;
   onGeneratePDF: () => void;
   onSendEmail: () => void;
+  onLogout: () => void;
   canSendEmail: boolean;
   isSendingEmail: boolean;
   isGeneratingPDF: boolean;
@@ -13,6 +14,7 @@ export default function ActionBar({
   onSave,
   onGeneratePDF,
   onSendEmail,
+  onLogout,
   canSendEmail,
   isSendingEmail,
   isGeneratingPDF,
@@ -20,11 +22,20 @@ export default function ActionBar({
   return (
     <div className="mx-auto mb-4 max-w-[1500px]">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold sm:text-2xl">Dodací list</h1>
-          <p className="mt-1 text-xs text-muted sm:text-sm">
-            Vyplňte formulár, podpíšte a odošlite email.
-          </p>
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold sm:text-2xl">Dodací list</h1>
+            <p className="mt-1 text-xs text-muted sm:text-sm">
+              Vyplňte formulár, podpíšte a odošlite email.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="ml-auto shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-alt hover:text-foreground"
+          >
+            Odhlásiť
+          </button>
         </div>
 
         <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
