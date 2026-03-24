@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   form: "dodaci-system-avokado",
   lastDate: "dodaci-system-last-date",
   lastCount: "dodaci-system-last-count",
+  history: "dodaci-system-history",
 } as const;
 
 export const supplier: Supplier = {

@@ -1,21 +1,27 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { Company } from "@/lib/types";
 import { supplier, defaultCompanies, VAT_RATE, DEFAULT_NOTE, STORAGE_KEYS } from "@/lib/constants";
-import { formatNum, formatDateSK, todayISO } from "@/lib/formatting";
+import { todayISO } from "@/lib/formatting";
 import { calculateDeliveryPrices } from "@/lib/calculations";
-import { nextDeliveryNumber } from "@/lib/delivery-number";
 import ActionBar from "./ActionBar";
+import CustomerSelect from "./CustomerSelect";
 import CompanyPanel from "./CompanyPanel";
 import ItemsPanel from "./ItemsPanel";
 import SignatureCanvas from "./SignatureCanvas";
 import DeliveryPreview from "./DeliveryPreview";
+import DeliveryHistory from "./DeliveryHistory";
+import ReviewSheet from "./ReviewSheet";
+import StickyBottomBar from "./StickyBottomBar";
 import { useToast } from "./Toast";
+import { addHistoryEntry } from "./DeliveryHistory";
 
 // --- State & Reducer ---
 
 interface DeliveryState {
+  screen: "customer-select" | "delivery-form";
   companies: Company[];
   selectedCompanyId: string;
   deliveryNumber: string;
@@ -31,9 +37,12 @@ interface DeliveryState {
 
 type Action =
   | { type: "SET_FIELD"; field: keyof DeliveryState; value: DeliveryState[keyof DeliveryState] }
+  | { type: "SET_SCREEN"; screen: DeliveryState["screen"] }
   | { type: "SELECT_COMPANY"; id: string; company: Company }
   | { type: "UPDATE_COMPANY"; field: keyof Company; value: string | number }
+  | { type: "REPLACE_COMPANY"; id: string; data: Omit<Company, "id"> }
   | { type: "ADD_COMPANY"; company: Company }
+  | { type: "DELETE_COMPANY"; id: string }
   | { type: "LOAD_STATE"; state: Partial<DeliveryState> }
   | { type: "RESET_FORM"; deliveryNumber: string };
 
@@ -41,6 +50,8 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
   switch (action.type) {
     case "SET_FIELD":
       return { ...state, [action.field]: action.value, sheetSaved: false };
+    case "SET_SCREEN":
+      return { ...state, screen: action.screen };
     case "SELECT_COMPANY":
       return {
         ...state,
@@ -48,6 +59,7 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
         customerName: action.company.name,
         customerEmail: action.company.email,
         sheetSaved: false,
+        screen: "delivery-form",
       };
     case "UPDATE_COMPANY":
       return {
@@ -59,6 +71,19 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
         ),
         sheetSaved: false,
       };
+    case "REPLACE_COMPANY": {
+      const updated = state.companies.map((c) =>
+        c.id === action.id ? { ...c, ...action.data } : c,
+      );
+      const wasSelected = state.selectedCompanyId === action.id;
+      return {
+        ...state,
+        companies: updated,
+        customerName: wasSelected ? action.data.name : state.customerName,
+        customerEmail: wasSelected ? action.data.email : state.customerEmail,
+        sheetSaved: false,
+      };
+    }
     case "ADD_COMPANY":
       return {
         ...state,
@@ -66,12 +91,30 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
         selectedCompanyId: action.company.id,
         customerName: action.company.name,
         customerEmail: action.company.email,
+        screen: "delivery-form",
       };
+    case "DELETE_COMPANY": {
+      const remaining = state.companies.filter((c) => c.id !== action.id);
+      if (remaining.length === 0) return state;
+      const newSelected =
+        state.selectedCompanyId === action.id
+          ? remaining[0]
+          : remaining.find((c) => c.id === state.selectedCompanyId) ?? remaining[0];
+      return {
+        ...state,
+        companies: remaining,
+        selectedCompanyId: newSelected.id,
+        customerName: newSelected.name,
+        customerEmail: newSelected.email,
+        sheetSaved: false,
+      };
+    }
     case "LOAD_STATE":
       return { ...state, ...action.state };
     case "RESET_FORM":
       return {
         ...state,
+        screen: "customer-select",
         deliveryNumber: action.deliveryNumber,
         date: todayISO(),
         customerName:
@@ -91,6 +134,7 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
 
 function getInitialState(): DeliveryState {
   return {
+    screen: "customer-select",
     companies: defaultCompanies,
     selectedCompanyId: "1",
     deliveryNumber: "",
@@ -105,29 +149,6 @@ function getInitialState(): DeliveryState {
   };
 }
 
-// --- Barcode helper for PDF ---
-
-function drawBarcodeBars(
-  doc: import("jspdf").jsPDF,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  text: string,
-) {
-  const digits = String(text).replace(/\D/g, "") || "20260415";
-  const bars = digits.repeat(4).slice(0, 48);
-  const barWidth = width / bars.length;
-
-  for (let i = 0; i < bars.length; i++) {
-    const num = Number(bars[i]);
-    if (num % 2 === 0) {
-      doc.setFillColor(0, 0, 0);
-      doc.rect(x + i * barWidth, y, Math.max(1, barWidth * 0.7), height, "F");
-    }
-  }
-}
-
 // --- Component ---
 
 export default function DeliveryForm() {
@@ -135,6 +156,10 @@ export default function DeliveryForm() {
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoadedRef = useRef(false);
   const { addToast } = useToast();
 
   const selectedCompany = useMemo(
@@ -149,34 +174,108 @@ export default function DeliveryForm() {
     [state.quantity, priceWithVat],
   );
 
-  // Load from localStorage on mount
+  // Load data on mount: companies from API, form draft from localStorage
   useEffect(() => {
-    dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: nextDeliveryNumber() });
+    async function init() {
+      // Fetch delivery number from server (atomic counter)
+      try {
+        const res = await fetch("/api/delivery-number", { method: "POST" });
+        const data = await res.json();
+        if (data.number) {
+          dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: data.number });
+        }
+      } catch {
+        // Fallback: use date-based format
+        const d = new Date();
+        const dateKey = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+        dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: `DL-${dateKey}-001` });
+      }
 
-    const raw = localStorage.getItem(STORAGE_KEYS.form);
-    if (!raw) return;
+      // Load companies from server
+      try {
+        const res = await fetch("/api/companies");
+        const companies = await res.json();
+        if (Array.isArray(companies) && companies.length > 0) {
+          dispatch({ type: "LOAD_STATE", state: { companies } });
+        }
+      } catch {
+        // Keep defaults
+      }
 
-    try {
-      const data = JSON.parse(raw);
-      dispatch({
-        type: "LOAD_STATE",
-        state: {
-          companies: data.companies ?? undefined,
-          selectedCompanyId: data.selectedCompanyId ?? undefined,
-          deliveryNumber: data.deliveryNumber ?? undefined,
-          date: data.date ?? undefined,
-          customerName: data.customerName ?? undefined,
-          customerEmail: data.customerEmail ?? undefined,
-          quantity: typeof data.quantity === "number" ? data.quantity : undefined,
-          freeQuantity: typeof data.freeQuantity === "number" ? data.freeQuantity : undefined,
-          note: data.note ?? undefined,
-          signatureData: data.signatureData ?? undefined,
-        },
-      });
-    } catch (error: unknown) {
-      console.error("Failed to load saved data:", error instanceof Error ? error.message : error);
+      // Load form draft from localStorage (ephemeral form state only)
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.form);
+        if (raw) {
+          const data = JSON.parse(raw);
+          dispatch({
+            type: "LOAD_STATE",
+            state: {
+              selectedCompanyId: data.selectedCompanyId ?? undefined,
+              deliveryNumber: data.deliveryNumber ?? undefined,
+              date: data.date ?? undefined,
+              customerName: data.customerName ?? undefined,
+              customerEmail: data.customerEmail ?? undefined,
+              quantity: typeof data.quantity === "number" ? data.quantity : undefined,
+              freeQuantity: typeof data.freeQuantity === "number" ? data.freeQuantity : undefined,
+              note: data.note ?? undefined,
+              signatureData: data.signatureData ?? undefined,
+            },
+          });
+        }
+      } catch (error: unknown) {
+        console.error("Failed to load saved data:", error instanceof Error ? error.message : error);
+      }
+
+      hasLoadedRef.current = true;
     }
+
+    init();
   }, []);
+
+  // Auto-save to localStorage with debounce
+  useEffect(() => {
+    if (!hasLoadedRef.current) return;
+
+    setSaveStatus("saving");
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    saveTimerRef.current = setTimeout(() => {
+      // Save form draft to localStorage
+      localStorage.setItem(STORAGE_KEYS.form, JSON.stringify({
+        selectedCompanyId: state.selectedCompanyId,
+        deliveryNumber: state.deliveryNumber,
+        date: state.date,
+        customerName: state.customerName,
+        customerEmail: state.customerEmail,
+        quantity: state.quantity,
+        freeQuantity: state.freeQuantity,
+        note: state.note,
+        signatureData: state.signatureData,
+      }));
+      // Save companies to server (fire and forget)
+      fetch("/api/companies", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state.companies),
+      }).catch(() => {});
+      setSaveStatus("saved");
+    }, 2000);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [state.companies, state.selectedCompanyId, state.deliveryNumber, state.date, state.customerName, state.customerEmail, state.quantity, state.freeQuantity, state.note, state.signatureData]);
+
+  // Warn before tab close if form has data
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (state.quantity > 0 || state.signatureData) {
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [state.quantity, state.signatureData]);
 
   // --- Validation ---
 
@@ -192,31 +291,19 @@ export default function DeliveryForm() {
     if (!state.customerEmail.trim() || !state.customerEmail.includes("@")) {
       newErrors.customerEmail = "Zadajte platný email";
     }
+    if (!state.signatureData) {
+      newErrors.signatureData = "Podpis je povinný";
+    }
 
     setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) {
+      const messages = Object.values(newErrors);
+      addToast(messages.join(", "), "error");
+    }
     return Object.keys(newErrors).length === 0;
   }
 
   // --- Actions ---
-
-  function saveToLocalStorage() {
-    localStorage.setItem(
-      STORAGE_KEYS.form,
-      JSON.stringify({
-        companies: state.companies,
-        selectedCompanyId: state.selectedCompanyId,
-        deliveryNumber: state.deliveryNumber,
-        date: state.date,
-        customerName: state.customerName,
-        customerEmail: state.customerEmail,
-        quantity: state.quantity,
-        freeQuantity: state.freeQuantity,
-        note: state.note,
-        signatureData: state.signatureData,
-      }),
-    );
-    addToast("Uložené do lokálneho úložiska", "success");
-  }
 
   async function saveDeliveryToGoogleSheet() {
     if (state.sheetSaved) return true;
@@ -249,168 +336,46 @@ export default function DeliveryForm() {
   }
 
   async function generatePDF() {
+    if (!validate()) return;
     setIsGeneratingPDF(true);
     try {
-      const { jsPDF } = await import("jspdf");
-      const doc = new jsPDF({ unit: "pt", format: "a4" });
-
-      // Load Roboto fonts for SK/CZ diacritics support
-      const [regularBuf, boldBuf] = await Promise.all([
-        fetch("/fonts/Roboto-Regular.ttf").then((r) => r.arrayBuffer()),
-        fetch("/fonts/Roboto-Bold.ttf").then((r) => r.arrayBuffer()),
-      ]);
-      const toBase64 = (buf: ArrayBuffer) => {
-        const bytes = new Uint8Array(buf);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        return btoa(binary);
-      };
-      doc.addFileToVFS("Roboto-Regular.ttf", toBase64(regularBuf));
-      doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
-      doc.addFileToVFS("Roboto-Bold.ttf", toBase64(boldBuf));
-      doc.addFont("Roboto-Bold.ttf", "Roboto", "bold");
-
-      const leftX = 24;
-      const rightX = 415;
-      const midX = 396;
-      const pageWidth = 595;
-
-      doc.setFont("Roboto", "bold");
-      doc.setFontSize(12);
-      doc.text("Dodávateľ", leftX, 30);
-      doc.setFontSize(15);
-      doc.text(supplier.name, leftX, 54);
-      doc.setFont("Roboto", "normal");
-      doc.setFontSize(10);
-      doc.text(supplier.address1, leftX, 74);
-      doc.text(supplier.address2, leftX, 92);
-      doc.text(supplier.country, leftX, 110);
-      doc.text(`IČO: ${supplier.ico}`, leftX, 150);
-      doc.text(`IČ DPH: ${supplier.icdph}`, leftX + 110, 150);
-      doc.text(`DIČ: ${supplier.dic}`, leftX + 280, 150);
-
-      doc.setFont("Roboto", "bold");
-      doc.text("Kontaktné údaje", leftX, 190);
-      doc.setFont("Roboto", "normal");
-      doc.text("E-mail:", leftX, 214);
-      doc.text(supplier.email, leftX + 80, 214);
-      doc.text("Telefón:", leftX, 236);
-      doc.text(supplier.phone, leftX + 80, 236);
-
-      doc.setLineWidth(1);
-      doc.setDrawColor(205, 205, 205);
-      doc.line(midX, 10, midX, 445);
-
-      doc.setFont("Roboto", "bold");
-      doc.setFontSize(20);
-      doc.text("Dodací list", 490, 30, { align: "center" });
-
-      doc.rect(rightX, 14, 140, 38);
-      doc.setFontSize(11);
-      doc.text(`k faktúre č. ${state.deliveryNumber}`, rightX + 70, 38, {
-        align: "center",
+      const response = await fetch("/api/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveryNumber: state.deliveryNumber,
+          date: state.date,
+          customerName: state.customerName,
+          customerEmail: state.customerEmail,
+          address: selectedCompany?.address ?? "",
+          ico: selectedCompany?.ico ?? "",
+          icdph: selectedCompany?.icdph ?? "",
+          quantity: state.quantity,
+          freeQuantity: state.freeQuantity,
+          priceWithVat,
+          totalWithoutVat: calculations.totalWithoutVat,
+          vatAmount: calculations.vatAmount,
+          totalWithVat: calculations.totalWithVat,
+          signatureData: state.signatureData,
+        }),
       });
-      drawBarcodeBars(doc, rightX + 68, 58, 70, 16, state.deliveryNumber);
 
-      doc.setFont("Roboto", "bold");
-      doc.setFontSize(12);
-      doc.text("Odberateľ", 430, 240);
-      doc.setFontSize(15);
-      doc.text(state.customerName, 430, 262);
-      doc.setFont("Roboto", "normal");
-      doc.setFontSize(10);
-      const addressLines = doc.splitTextToSize(
-        selectedCompany?.address ?? "",
-        150,
-      );
-      doc.text(addressLines, 430, 280);
-      const addressEndY = 280 + addressLines.length * 16;
-      doc.text("Slovensko", 430, addressEndY + 10);
-      doc.text(`IČO: ${selectedCompany?.ico ?? ""}`, 430, addressEndY + 34);
-      doc.text(`IČ DPH: ${selectedCompany?.icdph ?? ""}`, 505, addressEndY + 34);
-      doc.text(`DIČ: ${selectedCompany?.dic ?? ""}`, 430, addressEndY + 54);
-
-      doc.setFont("Roboto", "normal");
-      doc.text("Spôsob úhrady:", leftX, 412);
-      doc.setFont("Roboto", "bold");
-      doc.text("Prevodom", leftX + 100, 412);
-      doc.setFont("Roboto", "normal");
-      doc.text("Mena:", leftX, 436);
-      doc.setFont("Roboto", "bold");
-      doc.text("EUR", leftX + 65, 436);
-
-      doc.rect(0, 460, pageWidth, 82);
-      doc.setFont("Roboto", "bold");
-      doc.setFontSize(11);
-      doc.text("Dátum", leftX, 486);
-      doc.setFont("Roboto", "normal");
-      doc.text("vystavenia:", leftX, 516);
-      doc.setFont("Roboto", "bold");
-      doc.text(formatDateSK(state.date), leftX + 85, 516);
-      doc.setFont("Roboto", "normal");
-      doc.text("dodania:", leftX + 190, 516);
-      doc.setFont("Roboto", "bold");
-      doc.text(formatDateSK(state.date), leftX + 260, 516);
-
-      const tableY = 575;
-      const cols = [leftX, 230, 295, 365, 405, 468, 535];
-      doc.setFillColor(225, 225, 225);
-      doc.rect(leftX - 2, tableY, 545, 26, "F");
-      doc.setFont("Roboto", "bold");
-      doc.text("Označenie dodávky", leftX + 4, tableY + 17);
-      doc.text("Počet", cols[1], tableY + 17);
-      doc.text("m. j.", cols[2], tableY + 17);
-      doc.text("Cena za m.j.", cols[3], tableY + 17);
-      doc.text("DPH %", cols[4], tableY + 17);
-      doc.text("Bez DPH", cols[5], tableY + 17);
-      doc.text("DPH", cols[6], tableY + 17);
-      doc.text("Spolu", 570, tableY + 17, { align: "right" });
-
-      const row1Y = tableY + 38;
-      doc.setFont("Roboto", "normal");
-      doc.text("Avokado hass", leftX + 4, row1Y);
-      doc.text(formatNum(state.quantity), cols[1], row1Y);
-      doc.text("ks", cols[2], row1Y);
-      doc.text(formatNum(priceWithVat), cols[3], row1Y);
-      doc.text("19", cols[4], row1Y);
-      doc.text(formatNum(calculations.totalWithoutVat), cols[5], row1Y);
-      doc.text(formatNum(calculations.vatAmount), cols[6], row1Y);
-      doc.setFont("Roboto", "bold");
-      doc.text(formatNum(calculations.totalWithVat), 570, row1Y, {
-        align: "right",
-      });
-      doc.setFont("Roboto", "normal");
-      doc.line(leftX, row1Y + 8, 570, row1Y + 8);
-
-      const row2Y = row1Y + 22;
-      doc.text("Avokado hass", leftX + 4, row2Y);
-      doc.text(formatNum(state.freeQuantity), cols[1], row2Y);
-      doc.text("ks", cols[2], row2Y);
-      doc.text(formatNum(0), cols[3], row2Y);
-      doc.text("19", cols[4], row2Y);
-      doc.text(formatNum(0), cols[5], row2Y);
-      doc.text(formatNum(0), cols[6], row2Y);
-      doc.setFont("Roboto", "bold");
-      doc.text(formatNum(0), 570, row2Y, { align: "right" });
-      doc.setFont("Roboto", "normal");
-      doc.line(leftX, row2Y + 8, 570, row2Y + 8);
-
-      const signY = 735;
-      doc.setFont("Roboto", "bold");
-      doc.text("Prevzal", leftX, signY);
-      doc.setLineDashPattern([1, 2], 0);
-      doc.line(leftX, signY + 18, 190, signY + 18);
-      doc.text("Dňa", leftX, signY + 48);
-      doc.line(leftX, signY + 66, 190, signY + 66);
-      doc.setLineDashPattern([], 0);
-
-      if (state.signatureData) {
-        doc.addImage(state.signatureData, "PNG", 220, 715, 150, 55);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error("PDF generation failed:", errorData);
+        addToast("Chyba pri generovaní PDF", "error");
+        return;
       }
 
-      doc.save(`dodaci-list-${state.deliveryNumber}.pdf`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dodaci-list-${state.deliveryNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
       addToast("PDF stiahnuté", "success");
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("PDF error:", error instanceof Error ? error.message : error);
       addToast("Chyba pri generovaní PDF", "error");
     } finally {
@@ -427,7 +392,6 @@ export default function DeliveryForm() {
 
     setIsSendingEmail(true);
     try {
-      // Save to Google Sheets first
       await saveDeliveryToGoogleSheet();
 
       const response = await fetch("/api/send-delivery", {
@@ -458,7 +422,22 @@ export default function DeliveryForm() {
         return;
       }
 
+      addHistoryEntry({
+        deliveryNumber: state.deliveryNumber,
+        date: state.date,
+        company: state.customerName,
+        quantity: state.quantity,
+        freeQuantity: state.freeQuantity,
+        totalWithVat: calculations.totalWithVat,
+        sentAt: new Date().toISOString(),
+      });
+      window.dispatchEvent(new Event("delivery-sent"));
+
+      setReviewOpen(false);
       addToast("Email s PDF bol odoslaný.", "success");
+
+      // Reset form and go back to customer selection
+      await resetForm();
     } catch (error: unknown) {
       console.error("Email error:", error instanceof Error ? error.message : error);
       addToast("Chyba pri odosielaní emailu.", "error");
@@ -472,15 +451,29 @@ export default function DeliveryForm() {
     window.location.href = "/login";
   }
 
-  function resetForm() {
-    dispatch({ type: "RESET_FORM", deliveryNumber: nextDeliveryNumber() });
-    addToast("Nový dodací list pripravený", "success");
+  async function resetForm() {
+    let number = `DL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-001`;
+    try {
+      const res = await fetch("/api/delivery-number", { method: "POST" });
+      const data = await res.json();
+      if (data.number) number = data.number;
+    } catch { /* use fallback */ }
+    viewTransition(() => dispatch({ type: "RESET_FORM", deliveryNumber: number }));
+  }
+
+  // Wrap screen-changing dispatches with View Transitions API
+  function viewTransition(update: () => void) {
+    if (document.startViewTransition) {
+      document.startViewTransition(() => flushSync(update));
+    } else {
+      update();
+    }
   }
 
   const handleSelectCompany = useCallback(
     (id: string) => {
       const company = state.companies.find((c) => c.id === id) ?? state.companies[0];
-      dispatch({ type: "SELECT_COMPANY", id, company });
+      viewTransition(() => dispatch({ type: "SELECT_COMPANY", id, company }));
     },
     [state.companies],
   );
@@ -489,8 +482,17 @@ export default function DeliveryForm() {
     dispatch({ type: "SET_FIELD", field: "signatureData", value: data });
   }, []);
 
+  function handleSendClick() {
+    if (!validate()) return;
+    if (!state.signatureData) {
+      addToast("Podpis zákazníka je povinný pre odoslanie", "error");
+      return;
+    }
+    setReviewOpen(true);
+  }
+
   return (
-    <div className="min-h-screen bg-background px-3 py-3 font-sans text-foreground sm:px-6 sm:py-4">
+    <div className="min-h-screen bg-background font-sans text-foreground">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-4 focus:py-2 focus:text-white"
@@ -499,108 +501,131 @@ export default function DeliveryForm() {
       </a>
 
       <ActionBar
-        onSave={saveToLocalStorage}
+        saveStatus={saveStatus}
         onGeneratePDF={generatePDF}
-        onSendEmail={sendByEmail}
+        onSendEmail={handleSendClick}
         onLogout={handleLogout}
+        onLogoClick={() => dispatch({ type: "SET_SCREEN", screen: "customer-select" })}
         canSendEmail={!!state.signatureData && !!state.customerEmail}
         isSendingEmail={isSendingEmail}
         isGeneratingPDF={isGeneratingPDF}
+        showSendButton={state.screen === "delivery-form"}
+        showPDFButton={state.screen === "delivery-form"}
       />
 
-      <main
-        id="main-content"
-        className="mx-auto grid max-w-[1500px] grid-cols-1 items-start gap-3 sm:gap-4 lg:grid-cols-[1.55fr_0.75fr]"
-      >
-        {/* Preview - shown second on mobile, first on desktop */}
-        <div className="order-2 lg:order-1">
-          <DeliveryPreview
-            supplier={supplier}
-            selectedCompany={selectedCompany}
-            customerName={state.customerName}
-            deliveryNumber={state.deliveryNumber}
-            date={state.date}
-            quantity={state.quantity}
-            freeQuantity={state.freeQuantity}
-            calculations={calculations}
-            priceWithVat={priceWithVat}
-            signatureData={state.signatureData}
-          />
-        </div>
-
-        {/* Controls - shown first on mobile */}
-        <div className="order-1 grid gap-3 sm:gap-4 lg:order-2">
-          <CompanyPanel
+      <main id="main-content">
+        {state.screen === "customer-select" ? (
+          <CustomerSelect
             companies={state.companies}
             selectedCompanyId={state.selectedCompanyId}
-            customerEmail={state.customerEmail}
-            onSelectCompany={handleSelectCompany}
-            onEmailChange={(email) =>
-              dispatch({ type: "SET_FIELD", field: "customerEmail", value: email })
-            }
-            onUpdateCompany={(field, value) =>
-              dispatch({ type: "UPDATE_COMPANY", field, value })
-            }
-            onAddCompany={() =>
+            onSelect={handleSelectCompany}
+            onAddCompany={(data) =>
               dispatch({
                 type: "ADD_COMPANY",
-                company: {
-                  id: Date.now().toString(),
-                  name: "Nová firma",
-                  email: "firma@email.sk",
-                  priceWithVat: 1.85,
-                  ico: "",
-                  icdph: "",
-                  dic: "",
-                  address: "",
-                },
+                company: { id: Date.now().toString(), ...data },
               })
             }
-            selectedCompany={selectedCompany}
+            onUpdateCompany={(id, data) =>
+              dispatch({ type: "REPLACE_COMPANY", id, data })
+            }
+            onDeleteCompany={(id) =>
+              dispatch({ type: "DELETE_COMPANY", id })
+            }
           />
+        ) : (
+          <div className="mx-auto grid max-w-[1500px] grid-cols-1 items-start gap-3 px-3 py-3 pb-24 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[1.55fr_0.75fr] lg:pb-4">
+            {/* Desktop: preview on left */}
+            <div className="order-2 hidden lg:order-1 lg:block">
+              <DeliveryPreview
+                supplier={supplier}
+                selectedCompany={selectedCompany}
+                customerName={state.customerName}
+                deliveryNumber={state.deliveryNumber}
+                date={state.date}
+                quantity={state.quantity}
+                freeQuantity={state.freeQuantity}
+                calculations={calculations}
+                priceWithVat={priceWithVat}
+                signatureData={state.signatureData}
+              />
+            </div>
 
-          <ItemsPanel
-            deliveryNumber={state.deliveryNumber}
-            date={state.date}
-            quantity={state.quantity}
-            freeQuantity={state.freeQuantity}
-            priceWithVat={priceWithVat}
-            note={state.note}
-            onDeliveryNumberChange={(v) =>
-              dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: v })
-            }
-            onDateChange={(v) =>
-              dispatch({ type: "SET_FIELD", field: "date", value: v })
-            }
-            onQuantityChange={(v) =>
-              dispatch({ type: "SET_FIELD", field: "quantity", value: v })
-            }
-            onFreeQuantityChange={(v) =>
-              dispatch({ type: "SET_FIELD", field: "freeQuantity", value: v })
-            }
-            onPriceChange={(v) =>
-              dispatch({ type: "UPDATE_COMPANY", field: "priceWithVat", value: v })
-            }
-            onNoteChange={(v) =>
-              dispatch({ type: "SET_FIELD", field: "note", value: v })
-            }
-            errors={errors}
-          />
+            {/* Form controls */}
+            <div className="order-1 mx-auto w-full max-w-lg grid gap-3 sm:gap-4 lg:order-2 lg:max-w-none">
+              <CompanyPanel
+                customerName={state.customerName}
+                customerEmail={state.customerEmail}
+                onChangeCompany={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }))}
+              />
 
-          <SignatureCanvas
-            signatureData={state.signatureData}
-            onSignatureChange={handleSignatureChange}
-          />
+              <ItemsPanel
+                deliveryNumber={state.deliveryNumber}
+                date={state.date}
+                quantity={state.quantity}
+                freeQuantity={state.freeQuantity}
+                priceWithVat={priceWithVat}
+                note={state.note}
+                onDeliveryNumberChange={(v) =>
+                  dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: v })
+                }
+                onDateChange={(v) =>
+                  dispatch({ type: "SET_FIELD", field: "date", value: v })
+                }
+                onQuantityChange={(v) =>
+                  dispatch({ type: "SET_FIELD", field: "quantity", value: v })
+                }
+                onFreeQuantityChange={(v) =>
+                  dispatch({ type: "SET_FIELD", field: "freeQuantity", value: v })
+                }
+                onPriceChange={(v) =>
+                  dispatch({ type: "UPDATE_COMPANY", field: "priceWithVat", value: v })
+                }
+                onNoteChange={(v) =>
+                  dispatch({ type: "SET_FIELD", field: "note", value: v })
+                }
+                errors={errors}
+              />
 
-          <button
-            type="button"
-            onClick={resetForm}
-            className="min-h-[44px] w-full rounded-xl border border-danger/30 bg-surface px-3.5 py-3 font-bold text-danger shadow-md transition-colors hover:bg-danger-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger active:scale-[0.98]"
-          >
-            Nový dodací list dnes
-          </button>
-        </div>
+              <SignatureCanvas
+                signatureData={state.signatureData}
+                onSignatureChange={handleSignatureChange}
+              />
+
+              <DeliveryHistory />
+            </div>
+          </div>
+        )}
       </main>
+
+      {/* Sticky bottom bar — mobile only, visible on delivery form */}
+      {state.screen === "delivery-form" && (
+        <StickyBottomBar
+          quantity={state.quantity}
+          freeQuantity={state.freeQuantity}
+          totalWithVat={calculations.totalWithVat}
+          onSend={handleSendClick}
+          canSend={!!state.signatureData && !!state.customerEmail && state.quantity > 0}
+        />
+      )}
+
+      {/* Review sheet */}
+      <ReviewSheet
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        onConfirm={sendByEmail}
+        isSending={isSendingEmail}
+        supplier={supplier}
+        selectedCompany={selectedCompany}
+        customerName={state.customerName}
+        customerEmail={state.customerEmail}
+        deliveryNumber={state.deliveryNumber}
+        date={state.date}
+        quantity={state.quantity}
+        freeQuantity={state.freeQuantity}
+        calculations={calculations}
+        priceWithVat={priceWithVat}
+        signatureData={state.signatureData}
+      />
     </div>
   );
 }

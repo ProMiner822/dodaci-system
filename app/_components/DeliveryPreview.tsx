@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Company, Supplier, DeliveryCalculations } from "@/lib/types";
-import { formatNum, formatDateSK } from "@/lib/formatting";
+import { formatNum, formatDateSK, formatEUR } from "@/lib/formatting";
 
 interface DeliveryPreviewProps {
   supplier: Supplier;
@@ -29,12 +29,37 @@ export default function DeliveryPreview({
   priceWithVat,
   signatureData,
 }: DeliveryPreviewProps) {
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0].contentRect.width;
+      // 595 is the A4 document width, subtract padding
+      const newScale = Math.min(1, (width - 16) / 595);
+      setScale(newScale);
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <>
+      {/* Mobile: Sticky total summary */}
+      <div className="lg:hidden mb-2 flex items-center justify-between rounded-lg bg-surface px-4 py-2.5 shadow-sm">
+        <div className="text-sm text-muted">
+          {quantity} ks{freeQuantity > 0 ? ` + ${freeQuantity} grátis` : ""}
+        </div>
+        <div className="text-lg font-bold">{formatEUR(calculations.totalWithVat)}</div>
+      </div>
+
       {/* Mobile: Toggle button + collapsible scaled preview */}
-      <div className="lg:hidden">
+      <div className="lg:hidden" ref={containerRef}>
         <button
           type="button"
           onClick={() => setShowPreview(!showPreview)}
@@ -45,10 +70,18 @@ export default function DeliveryPreview({
 
         {showPreview && (
           <div className="mb-4 overflow-hidden rounded-xl bg-border shadow-md">
-            <div className="overflow-x-auto p-2">
+            <div
+              style={{ height: 842 * scale + 16 }}
+              className="overflow-hidden p-2"
+            >
               <div
-                className="origin-top-left bg-white p-6 text-black"
-                style={{ width: 595, minHeight: 842 }}
+                style={{
+                  width: 595,
+                  minHeight: 842,
+                  transform: `scale(${scale})`,
+                  transformOrigin: "top left",
+                }}
+                className="bg-white p-6 text-black"
               >
                 <PreviewContent
                   supplier={supplier}
@@ -72,7 +105,7 @@ export default function DeliveryPreview({
       <div className="hidden lg:block">
         <div className="rounded-xl bg-border p-4.5 shadow-md">
           <div
-            className="min-h-[980px] bg-paper p-6 text-foreground"
+            className="min-h-[980px] bg-white p-6 text-black"
             role="document"
             aria-label="Náhľad dodacieho listu"
           >
@@ -95,7 +128,7 @@ export default function DeliveryPreview({
   );
 }
 
-function PreviewContent({
+export function PreviewContent({
   supplier,
   selectedCompany,
   customerName,

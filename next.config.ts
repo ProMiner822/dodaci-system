@@ -30,6 +30,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/send-delivery": ["./public/fonts/**/*"],
+    "/api/generate-pdf": ["./public/fonts/**/*"],
   },
   async headers() {
     return [

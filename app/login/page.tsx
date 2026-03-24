@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import ThemeToggle from "../_components/ThemeToggle";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,9 +45,14 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-xl bg-surface p-6 shadow-md">
-        <h1 className="text-xl font-bold text-foreground">Prihlásenie</h1>
-        <p className="mt-1 text-sm text-muted">Dodací systém — Tropic</p>
+      <div className="fixed right-4 top-4">
+        <ThemeToggle />
+      </div>
+      <div className="w-full max-w-sm overflow-hidden rounded-xl border-t-4 border-accent bg-surface p-6 shadow-md">
+        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+          Tropic
+        </h1>
+        <p className="mt-1 text-sm text-muted">Dodací systém</p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
