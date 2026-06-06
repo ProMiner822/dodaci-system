@@ -7,6 +7,64 @@ interface SignatureCanvasProps {
   onSignatureChange: (data: string) => void;
 }
 
+// Export only the drawn ink, tightly cropped to its bounding box. The drawing
+// area is a wide strip that's mostly blank, so embedding the whole canvas made
+// the signature look tiny in the PDF. Returns "" when nothing was drawn.
+function exportTrimmedSignature(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  const { width, height } = canvas;
+  if (width === 0 || height === 0) return "";
+  const { data } = ctx.getImageData(0, 0, width, height);
+
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      // Ink = any non-white pixel (background is filled white).
+      if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return ""; // blank canvas
+
+  const pad = 8;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad);
+  maxY = Math.min(height - 1, maxY + pad);
+  const cw = maxX - minX + 1;
+  const ch = maxY - minY + 1;
+
+  const out = document.createElement("canvas");
+  out.width = cw;
+  out.height = ch;
+  const octx = out.getContext("2d");
+  if (!octx) return "";
+  octx.fillStyle = "#ffffff";
+  octx.fillRect(0, 0, cw, ch);
+  octx.drawImage(canvas, minX, minY, cw, ch, 0, 0, cw, ch);
+  return out.toDataURL("image/png");
+}
+
+// Draw a (now tightly-cropped) signature back into a canvas without stretching,
+// preserving its aspect ratio and centering it.
+function drawSignatureContain(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cw: number,
+  ch: number,
+) {
+  const scale = Math.min(cw / img.width, ch / img.height);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
+}
+
 export default function SignatureCanvas({
   signatureData,
   onSignatureChange,
@@ -37,7 +95,7 @@ export default function SignatureCanvas({
   function scheduleSerialize(canvas: HTMLCanvasElement) {
     if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current);
     serializeTimerRef.current = setTimeout(() => {
-      onSignatureChange(canvas.toDataURL("image/png"));
+      onSignatureChange(exportTrimmedSignature(canvas));
     }, 300);
   }
 
@@ -126,7 +184,7 @@ export default function SignatureCanvas({
 
     if (signatureData) {
       const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      img.onload = () => drawSignatureContain(ctx, img, canvas.width, canvas.height);
       img.src = signatureData;
     }
   }, [signatureData]);
@@ -147,7 +205,7 @@ export default function SignatureCanvas({
         initCanvas(ctx, canvas.width, canvas.height);
         if (signatureData) {
           const img = new Image();
-          img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          img.onload = () => drawSignatureContain(ctx, img, canvas.width, canvas.height);
           img.src = signatureData;
         }
       }
@@ -178,7 +236,7 @@ export default function SignatureCanvas({
 
     if (signatureData) {
       const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      img.onload = () => drawSignatureContain(ctx, img, canvas.width, canvas.height);
       img.src = signatureData;
     }
   }, [isFullscreen, signatureData]);
@@ -247,7 +305,7 @@ export default function SignatureCanvas({
   function fsDone() {
     const canvas = fullscreenCanvasRef.current;
     if (!canvas) return;
-    onSignatureChange(canvas.toDataURL("image/png"));
+    onSignatureChange(exportTrimmedSignature(canvas));
     setIsFullscreen(false);
     historyRef.current = [];
   }

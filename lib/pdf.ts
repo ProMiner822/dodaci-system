@@ -1,7 +1,7 @@
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { formatEUR, formatDateSK } from "@/lib/formatting";
-import { supplier } from "@/lib/constants";
+import { supplier, VAT_RATE } from "@/lib/constants";
 import { readFile } from "fs/promises";
 import { join } from "path";
 
@@ -112,7 +112,7 @@ export async function generateDeliveryPDF(data: PDFData): Promise<Uint8Array> {
     12,
     true,
   );
-  draw(`DPH 19 %: ${formatEUR(data.vatAmount)}`, 24, 358, 12, true);
+  draw(`DPH ${Math.round(VAT_RATE * 100)} %: ${formatEUR(data.vatAmount)}`, 24, 358, 12, true);
   draw(`Suma spolu: ${formatEUR(data.totalWithVat)}`, 24, 336, 14, true);
 
   draw("Prevzal:", 24, 220, 12, true);
@@ -124,7 +124,10 @@ export async function generateDeliveryPDF(data: PDFData): Promise<Uint8Array> {
     const base64 = data.signatureData.replace(/^data:image\/png;base64,/, "");
     const sigBytes = Buffer.from(base64, "base64");
     const sigImage = await pdfDoc.embedPng(sigBytes);
-    page.drawImage(sigImage, { x: 200, y: 180, width: 150, height: 55 });
+    // Scale to fit a generous box while preserving aspect ratio, then place it
+    // to the right of the "Prevzal:" label (x24, y220), sitting on its line.
+    const fit = sigImage.scaleToFit(230, 70);
+    page.drawImage(sigImage, { x: 200, y: 200, width: fit.width, height: fit.height });
   }
 
   return pdfDoc.save();
