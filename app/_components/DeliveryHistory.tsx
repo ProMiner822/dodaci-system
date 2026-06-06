@@ -2,28 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { formatEUR, formatDateSK } from "@/lib/formatting";
-
-export interface HistoryEntry {
-  deliveryNumber: string;
-  date: string;
-  company: string;
-  quantity: number;
-  freeQuantity: number;
-  totalWithVat: number;
-  sentAt: string;
-}
-
-export async function addHistoryEntry(entry: HistoryEntry) {
-  try {
-    await fetch("/api/history", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry),
-    });
-  } catch {
-    // Silently fail — not critical
-  }
-}
+import type { HistoryEntry } from "@/lib/types";
 
 async function fetchHistory(): Promise<HistoryEntry[]> {
   try {
@@ -72,7 +51,14 @@ export default function DeliveryHistory() {
               className="flex items-center justify-between rounded-lg bg-surface-alt px-3 py-2 text-sm"
             >
               <div className="min-w-0">
-                <div className="truncate font-medium">{entry.company}</div>
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{entry.company}</span>
+                  {entry.status === "failed" && (
+                    <span className="shrink-0 rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-danger">
+                      Neodoslané
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-muted">
                   {formatDateSK(entry.date)} · {entry.deliveryNumber} · {entry.quantity} ks
                   {entry.freeQuantity > 0 ? ` + ${entry.freeQuantity} grátis` : ""}

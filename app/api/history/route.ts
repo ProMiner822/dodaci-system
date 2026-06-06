@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getHistory, addHistory } from "@/lib/storage";
-import type { HistoryEntry } from "@/lib/storage";
+import { getHistory } from "@/lib/storage";
 
+// History is written server-side by /api/send-delivery (with real send status).
 export async function GET() {
   try {
     const history = await getHistory();
@@ -9,19 +9,5 @@ export async function GET() {
   } catch (error) {
     console.error("GET HISTORY ERROR:", error instanceof Error ? error.message : error);
     return NextResponse.json([]);
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const entry: HistoryEntry = await request.json();
-    if (!entry.deliveryNumber || !entry.date || !entry.company) {
-      return NextResponse.json({ ok: false, error: "Invalid data" }, { status: 400 });
-    }
-    await addHistory(entry);
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("ADD HISTORY ERROR:", error instanceof Error ? error.message : error);
-    return NextResponse.json({ ok: false, error: "Failed to save" }, { status: 500 });
   }
 }

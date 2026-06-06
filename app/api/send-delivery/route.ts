@@ -6,6 +6,8 @@ import { formatEUR, formatDateSK } from "@/lib/formatting";
 import { escapeHtml } from "@/lib/sanitize";
 import { VAT_RATE } from "@/lib/constants";
 import { generateDeliveryPDF } from "@/lib/pdf";
+import { addHistory, saveDelivery } from "@/lib/storage";
+import type { HistoryEntry } from "@/lib/types";
 
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
@@ -20,6 +22,8 @@ const transporter = nodemailer.createTransport({
 export async function POST(req: Request) {
   try {
     const raw = await req.json();
+    // Re-sends pass skipHistory so they don't create a duplicate record.
+    const skipHistory = raw?.skipHistory === true;
 
     const parsed = deliveryPayloadSchema.safeParse(raw);
     if (!parsed.success) {
@@ -47,27 +51,62 @@ export async function POST(req: Request) {
     // Sanitize filename
     const safeDeliveryNumber = body.deliveryNumber.replace(/[^a-zA-Z0-9\-]/g, "");
 
-    const result = await transporter.sendMail({
-      from: emailFrom,
-      to: body.customerEmail,
-      cc: emailCc || undefined,
-      subject: `Avokádo dodací list ${formatDateSK(body.date)}`,
-      html: `
-        <p>Dobrý deň,</p>
-        <p>v prílohe posielame dodací list <strong>${escapeHtml(body.deliveryNumber)}</strong>.</p>
-        <p>Odberateľ: ${escapeHtml(body.customerName)}</p>
-        <p>Počet kusov: ${body.quantity}</p>
-        <p>Suma spolu: ${formatEUR(body.totalWithVat)}</p>
-      `,
-      attachments: [
-        {
-          filename: `dodaci-list-${safeDeliveryNumber}.pdf`,
-          content: pdfBuffer,
-        },
-      ],
+    const summary = (status: HistoryEntry["status"], extra: Partial<HistoryEntry>): HistoryEntry => ({
+      deliveryNumber: body.deliveryNumber,
+      date: body.date,
+      company: body.customerName,
+      quantity: body.quantity,
+      freeQuantity: body.freeQuantity,
+      totalWithVat: body.totalWithVat,
+      sentAt: new Date().toISOString(),
+      status,
+      ...extra,
     });
 
-    return NextResponse.json({ ok: true, messageId: result.messageId });
+    try {
+      const result = await transporter.sendMail({
+        from: emailFrom,
+        to: body.customerEmail,
+        cc: emailCc || undefined,
+        subject: `Avokádo dodací list ${formatDateSK(body.date)}`,
+        html: `
+          <p>Dobrý deň,</p>
+          <p>v prílohe posielame dodací list <strong>${escapeHtml(body.deliveryNumber)}</strong>.</p>
+          <p>Odberateľ: ${escapeHtml(body.customerName)}</p>
+          <p>Počet kusov: ${body.quantity}</p>
+          <p>Suma spolu: ${formatEUR(body.totalWithVat)}</p>
+        `,
+        attachments: [
+          {
+            filename: `dodaci-list-${safeDeliveryNumber}.pdf`,
+            content: pdfBuffer,
+          },
+        ],
+      });
+
+      if (!skipHistory) {
+        // Persist the full payload (for re-send/download) and a sent summary.
+        await saveDelivery(body);
+        await addHistory(summary("sent", { messageId: result.messageId }));
+      }
+
+      return NextResponse.json({ ok: true, messageId: result.messageId });
+    } catch (sendError: unknown) {
+      // Record a failed send so it's visible, and keep the payload for retry.
+      if (!skipHistory) {
+        try {
+          await saveDelivery(body);
+          await addHistory(
+            summary("failed", {
+              error: sendError instanceof Error ? sendError.message : "send failed",
+            }),
+          );
+        } catch (recordError) {
+          console.error("RECORD FAILED SEND ERROR:", recordError);
+        }
+      }
+      throw sendError;
+    }
   } catch (error: unknown) {
     console.error(
       "SEND DELIVERY ERROR:",

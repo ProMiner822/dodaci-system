@@ -38,6 +38,21 @@ export interface DeliveryPayload {
   signatureData: string;
 }
 
+// Lightweight summary stored in history.json (no signature) so the list loads
+// fast. The full payload for re-send/download lives in its own blob.
+export interface HistoryEntry {
+  deliveryNumber: string;
+  date: string;
+  company: string;
+  quantity: number;
+  freeQuantity: number;
+  totalWithVat: number;
+  sentAt: string;
+  status: "sent" | "failed";
+  messageId?: string;
+  error?: string;
+}
+
 export interface DeliveryCalculations {
   priceWithoutVat: number;
   vatPerPiece: number;

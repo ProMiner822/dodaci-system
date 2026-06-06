@@ -1,18 +1,11 @@
 import { put, head } from "@vercel/blob";
-import type { Company } from "./types";
+import type { Company, DeliveryPayload, HistoryEntry } from "./types";
+
+export type { HistoryEntry };
 
 const COMPANIES_KEY = "dodaci-system/companies.json";
 const HISTORY_KEY = "dodaci-system/history.json";
-
-export interface HistoryEntry {
-  deliveryNumber: string;
-  date: string;
-  company: string;
-  quantity: number;
-  freeQuantity: number;
-  totalWithVat: number;
-  sentAt: string;
-}
+const HISTORY_LIMIT = 2000;
 
 async function readBlob<T>(key: string): Promise<T | null> {
   const blob = await head(key);
@@ -54,11 +47,34 @@ export async function getHistory(): Promise<HistoryEntry[]> {
 export async function addHistory(entry: HistoryEntry): Promise<void> {
   const history = await getHistory();
   history.unshift(entry);
-  await put(HISTORY_KEY, JSON.stringify(history.slice(0, 100)), {
+  await put(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_LIMIT)), {
     access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
   });
+}
+
+// --- Per-delivery full payload (for re-send / download) ---
+
+function deliveryKey(deliveryNumber: string): string {
+  // deliveryNumber is already DL-YYYYMMDD-NNN (blob-safe); guard anyway.
+  return `dodaci-system/deliveries/${deliveryNumber.replace(/[^a-zA-Z0-9\-]/g, "")}.json`;
+}
+
+export async function saveDelivery(payload: DeliveryPayload): Promise<void> {
+  await put(deliveryKey(payload.deliveryNumber), JSON.stringify(payload), {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+}
+
+export async function getDelivery(deliveryNumber: string): Promise<DeliveryPayload | null> {
+  try {
+    return await readBlob<DeliveryPayload>(deliveryKey(deliveryNumber));
+  } catch {
+    return null;
+  }
 }
 
 // --- Delivery Counter ---

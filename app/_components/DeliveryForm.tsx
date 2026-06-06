@@ -16,7 +16,6 @@ import DeliveryHistory from "./DeliveryHistory";
 import ReviewSheet from "./ReviewSheet";
 import StickyBottomBar from "./StickyBottomBar";
 import { useToast } from "./Toast";
-import { addHistoryEntry } from "./DeliveryHistory";
 
 // --- State & Reducer ---
 
@@ -462,15 +461,8 @@ export default function DeliveryForm() {
         return;
       }
 
-      addHistoryEntry({
-        deliveryNumber,
-        date: state.date,
-        company: state.customerName,
-        quantity: state.quantity,
-        freeQuantity: state.freeQuantity,
-        totalWithVat: calculations.totalWithVat,
-        sentAt: new Date().toISOString(),
-      });
+      // History is recorded server-side by /api/send-delivery (with real
+      // send status); just refresh the list.
       window.dispatchEvent(new Event("delivery-sent"));
 
       setReviewOpen(false);
