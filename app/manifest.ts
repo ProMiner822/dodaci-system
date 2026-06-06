@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Systém pre správu a generovanie dodacích listov",
     start_url: "/",
     display: "standalone",
-    background_color: "#f5f5f5",
-    theme_color: "#2563eb",
+    background_color: "#f6f4ee",
+    theme_color: "#e5950f",
     icons: [
       {
         src: "/icons/icon.svg",

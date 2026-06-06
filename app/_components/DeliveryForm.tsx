@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { flushSync } from "react-dom";
 import type { Company } from "@/lib/types";
 import { supplier, VAT_RATE, DEFAULT_NOTE, STORAGE_KEYS } from "@/lib/constants";
-import { todayISO } from "@/lib/formatting";
+import { todayISO, formatEUR } from "@/lib/formatting";
 import { calculateDeliveryPrices } from "@/lib/calculations";
 import ActionBar from "./ActionBar";
 import CustomerSelect from "./CustomerSelect";
@@ -18,6 +18,7 @@ import StickyBottomBar from "./StickyBottomBar";
 import { useToast } from "./Toast";
 import { enqueue, flushOutbox } from "@/lib/outbox";
 import OutboxStatus from "./OutboxStatus";
+import SuccessOverlay from "./SuccessOverlay";
 
 // --- State & Reducer ---
 
@@ -169,6 +170,10 @@ export default function DeliveryForm() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastOrder, setLastOrder] = useState<{ quantity: number; freeQuantity: number } | null>(null);
+  const [signOpenRequest, setSignOpenRequest] = useState(0);
+  const [successInfo, setSuccessInfo] = useState<
+    { customerName: string; deliveryNumber: string; queued: boolean } | null
+  >(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedRef = useRef(false);
   const isSendingRef = useRef(false);
@@ -502,7 +507,7 @@ export default function DeliveryForm() {
         enqueue(payload, needsNumber);
         setReviewOpen(false);
         addToast("Bez pripojenia — dodací list je uložený a odošle sa po pripojení.", "success");
-        await resetForm();
+        await celebrateAndReset(true, deliveryNumber);
         return;
       }
 
@@ -533,7 +538,7 @@ export default function DeliveryForm() {
       addToast("Email s PDF bol odoslaný.", "success");
 
       // Reset form and go back to customer selection
-      await resetForm();
+      await celebrateAndReset(false, deliveryNumber);
     } catch (error: unknown) {
       // Network dropped mid-send — queue rather than lose the signed note.
       console.error("Email error:", error instanceof Error ? error.message : error);
@@ -559,7 +564,7 @@ export default function DeliveryForm() {
       );
       setReviewOpen(false);
       addToast("Bez pripojenia — dodací list je uložený a odošle sa po pripojení.", "success");
-      await resetForm();
+      await celebrateAndReset(true, deliveryNumber);
     } finally {
       setIsSendingEmail(false);
       isSendingRef.current = false;
@@ -569,6 +574,15 @@ export default function DeliveryForm() {
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
+  }
+
+  // Show the confirmation beat, then return to the customer list for the next
+  // stop on the round.
+  async function celebrateAndReset(queued: boolean, number: string) {
+    setSuccessInfo({ customerName: state.customerName, deliveryNumber: number, queued });
+    await new Promise((r) => setTimeout(r, 1300));
+    setSuccessInfo(null);
+    await resetForm();
   }
 
   async function resetForm() {
@@ -635,6 +649,7 @@ export default function DeliveryForm() {
         isGeneratingPDF={isGeneratingPDF}
         showSendButton={state.screen === "delivery-form"}
         showPDFButton={state.screen === "delivery-form"}
+        deliveryNumber={state.deliveryNumber}
       />
 
       <main id="main-content">
@@ -658,7 +673,7 @@ export default function DeliveryForm() {
             }
           />
         ) : (
-          <div className="mx-auto grid max-w-[1500px] grid-cols-1 items-start gap-3 px-3 py-3 pb-24 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[1.55fr_0.75fr] lg:pb-4">
+          <div className="reveal mx-auto grid max-w-[1500px] grid-cols-1 items-start gap-3 px-3 py-3 pb-28 sm:gap-4 sm:px-6 sm:py-4 lg:grid-cols-[1.55fr_0.75fr] lg:pb-4">
             {/* Desktop: preview on left */}
             <div className="order-2 hidden lg:order-1 lg:block">
               <DeliveryPreview
@@ -675,62 +690,85 @@ export default function DeliveryForm() {
               />
             </div>
 
-            {/* Form controls */}
-            <div className="order-1 mx-auto w-full max-w-lg grid gap-3 sm:gap-4 lg:order-2 lg:max-w-none">
-              <CompanyPanel
-                customerName={state.customerName}
-                customerEmail={state.customerEmail}
-                onChangeCompany={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }), true)}
-              />
+            {/* Form controls — borderless, content on the canvas (Linear-style) */}
+            <div className="order-1 mx-auto w-full max-w-lg lg:order-2 lg:max-w-none">
+              <div>
+                <CompanyPanel
+                  customerName={state.customerName}
+                  customerEmail={state.customerEmail}
+                  onChangeCompany={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }), true)}
+                />
 
-              {lastOrder && state.quantity === 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    dispatch({ type: "SET_FIELD", field: "quantity", value: lastOrder.quantity });
-                    dispatch({ type: "SET_FIELD", field: "freeQuantity", value: lastOrder.freeQuantity });
-                  }}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm font-bold text-accent transition-colors hover:bg-accent/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.99]"
-                >
-                  ↻ Zopakovať posledný: {lastOrder.quantity} ks
-                  {lastOrder.freeQuantity > 0 ? ` (+${lastOrder.freeQuantity} grátis)` : ""}
-                </button>
-              )}
+                {lastOrder && state.quantity === 0 && (
+                  <div className="border-t border-border p-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dispatch({ type: "SET_FIELD", field: "quantity", value: lastOrder.quantity });
+                        dispatch({ type: "SET_FIELD", field: "freeQuantity", value: lastOrder.freeQuantity });
+                      }}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-accent bg-accent-soft px-4 py-3.5 text-left transition-colors hover:bg-accent/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.99]"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <svg className="h-4 w-4 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M3 2v6h6" />
+                          <path d="M3 13a9 9 0 103-7.7L3 8" />
+                        </svg>
+                        <span className="text-sm font-bold">Zopakovať posledný</span>
+                      </span>
+                      <span className="font-mono text-sm font-bold tabular-nums text-accent">
+                        {lastOrder.quantity} ks
+                        {lastOrder.freeQuantity > 0 ? ` +${lastOrder.freeQuantity}` : ""}
+                      </span>
+                    </button>
+                  </div>
+                )}
 
-              <ItemsPanel
-                deliveryNumber={state.deliveryNumber}
-                date={state.date}
-                quantity={state.quantity}
-                freeQuantity={state.freeQuantity}
-                priceWithVat={priceWithVat}
-                note={state.note}
-                onDeliveryNumberChange={(v) =>
-                  dispatch({ type: "EDIT_DELIVERY_NUMBER", value: v })
-                }
-                onDateChange={(v) =>
-                  dispatch({ type: "SET_FIELD", field: "date", value: v })
-                }
-                onQuantityChange={(v) =>
-                  dispatch({ type: "SET_FIELD", field: "quantity", value: v })
-                }
-                onFreeQuantityChange={(v) =>
-                  dispatch({ type: "SET_FIELD", field: "freeQuantity", value: v })
-                }
-                onPriceChange={(v) =>
-                  dispatch({ type: "UPDATE_COMPANY", field: "priceWithVat", value: v })
-                }
-                onNoteChange={(v) =>
-                  dispatch({ type: "SET_FIELD", field: "note", value: v })
-                }
-                errors={errors}
-              />
+                <div className="border-t border-border">
+                  <ItemsPanel
+                    deliveryNumber={state.deliveryNumber}
+                    date={state.date}
+                    quantity={state.quantity}
+                    freeQuantity={state.freeQuantity}
+                    priceWithVat={priceWithVat}
+                    note={state.note}
+                    onDeliveryNumberChange={(v) =>
+                      dispatch({ type: "EDIT_DELIVERY_NUMBER", value: v })
+                    }
+                    onDateChange={(v) =>
+                      dispatch({ type: "SET_FIELD", field: "date", value: v })
+                    }
+                    onQuantityChange={(v) =>
+                      dispatch({ type: "SET_FIELD", field: "quantity", value: v })
+                    }
+                    onFreeQuantityChange={(v) =>
+                      dispatch({ type: "SET_FIELD", field: "freeQuantity", value: v })
+                    }
+                    onPriceChange={(v) =>
+                      dispatch({ type: "UPDATE_COMPANY", field: "priceWithVat", value: v })
+                    }
+                    onNoteChange={(v) =>
+                      dispatch({ type: "SET_FIELD", field: "note", value: v })
+                    }
+                    errors={errors}
+                  />
+                </div>
 
-              <SignatureCanvas
-                signatureData={state.signatureData}
-                onSignatureChange={handleSignatureChange}
-              />
+                <div className="border-t border-border">
+                  <SignatureCanvas
+                    signatureData={state.signatureData}
+                    onSignatureChange={handleSignatureChange}
+                    openCounter={signOpenRequest}
+                    signContext={
+                      state.quantity > 0
+                        ? `${state.customerName} · ${state.quantity} ks · ${formatEUR(calculations.totalWithVat)}`
+                        : state.customerName
+                    }
+                  />
+                </div>
+              </div>
 
-              <DeliveryHistory />
+              <DeliveryHistory company={state.customerName} />
             </div>
           </div>
         )}
@@ -742,8 +780,8 @@ export default function DeliveryForm() {
           quantity={state.quantity}
           freeQuantity={state.freeQuantity}
           totalWithVat={calculations.totalWithVat}
-          onSend={handleSendClick}
-          canSend={!!state.signatureData && !!state.customerEmail && state.quantity > 0}
+          onReview={handleSendClick}
+          onSign={() => setSignOpenRequest((n) => n + 1)}
           hasSignature={!!state.signatureData}
           hasEmail={!!state.customerEmail}
         />
@@ -767,6 +805,8 @@ export default function DeliveryForm() {
         priceWithVat={priceWithVat}
         signatureData={state.signatureData}
       />
+
+      {successInfo && <SuccessOverlay {...successInfo} />}
     </div>
   );
 }

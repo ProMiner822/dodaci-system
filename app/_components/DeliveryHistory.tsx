@@ -1,9 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import HistoryRow from "./HistoryRow";
 import type { HistoryEntry } from "@/lib/types";
+
+// `company` scopes the list to one customer (the detail screen). Without it the
+// list is global (currently unused, but keeps the component reusable).
+interface DeliveryHistoryProps {
+  company?: string;
+}
 
 async function fetchHistory(): Promise<HistoryEntry[]> {
   try {
@@ -15,7 +21,7 @@ async function fetchHistory(): Promise<HistoryEntry[]> {
   }
 }
 
-export default function DeliveryHistory() {
+export default function DeliveryHistory({ company }: DeliveryHistoryProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -31,27 +37,50 @@ export default function DeliveryHistory() {
     return () => window.removeEventListener("delivery-sent", handleRefresh);
   }, []);
 
-  if (entries.length === 0) return null;
+  // On a customer's detail screen, show only that customer's deliveries.
+  const visible = useMemo(
+    () => (company ? entries.filter((e) => e.company === company) : entries),
+    [entries, company],
+  );
+
+  if (visible.length === 0) return null;
 
   return (
-    <div className="rounded-xl bg-surface p-4 shadow-md sm:p-5">
+    <div className="border-t border-border">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between text-lg font-bold"
+        className="flex min-h-[52px] w-full items-center justify-between px-4 text-sm font-bold uppercase tracking-wide text-muted transition-colors hover:text-foreground"
+        aria-expanded={isOpen}
       >
-        <span>História ({entries.length})</span>
-        <span className="text-sm text-muted">{isOpen ? "▲" : "▼"}</span>
+        <span className="flex items-center gap-2">
+          {company ? "História odberateľa" : "História"}
+          <span className="font-mono text-xs tabular-nums">{visible.length}</span>
+        </span>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
       {isOpen && (
-        <div className="mt-3 space-y-2">
-          {entries.slice(0, 20).map((entry, i) => (
+        <div className="divide-y divide-border border-t border-border px-4">
+          {visible.slice(0, 20).map((entry, i) => (
             <HistoryRow key={`${entry.deliveryNumber}-${i}`} entry={entry} />
           ))}
           <Link
             href="/archiv"
-            className="block rounded-lg px-3 py-2 text-center text-sm font-bold text-accent hover:underline"
+            className="block py-3 text-center text-sm font-bold text-accent transition-colors hover:bg-accent-soft"
           >
             Zobraziť celú históriu a súhrn →
           </Link>

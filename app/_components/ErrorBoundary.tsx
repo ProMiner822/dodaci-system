@@ -27,9 +27,9 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-background px-4">
-          <div className="w-full max-w-sm rounded-xl bg-surface p-6 text-center shadow-md">
-            <h1 className="text-xl font-bold text-foreground">
+        <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+          <div className="w-full max-w-sm p-6 text-center">
+            <h1 className="text-xl font-extrabold tracking-tight text-foreground">
               Niečo sa pokazilo
             </h1>
             <p className="mt-2 text-sm text-muted">
@@ -41,7 +41,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
                 this.setState({ hasError: false });
                 window.location.reload();
               }}
-              className="mt-4 min-h-[44px] w-full rounded-lg border border-accent bg-accent px-3 py-2.5 text-base font-bold text-white transition-colors hover:bg-accent-hover active:scale-[0.98]"
+              className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2.5 text-base font-bold text-accent-ink transition-colors hover:bg-accent-hover active:scale-[0.98]"
             >
               Obnoviť stránku
             </button>

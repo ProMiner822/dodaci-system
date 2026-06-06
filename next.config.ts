@@ -28,6 +28,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   outputFileTracingIncludes: {
     "/api/send-delivery": ["./public/fonts/**/*"],
     "/api/generate-pdf": ["./public/fonts/**/*"],

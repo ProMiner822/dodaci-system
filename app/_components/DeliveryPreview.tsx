@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { Company, Supplier, DeliveryCalculations } from "@/lib/types";
-import { formatNum, formatDateSK, formatEUR } from "@/lib/formatting";
+import { formatNum, formatDateSK } from "@/lib/formatting";
+import DocumentModal from "./DocumentModal";
 
 interface DeliveryPreviewProps {
   supplier: Supplier;
@@ -30,6 +31,7 @@ export default function DeliveryPreview({
   signatureData,
 }: DeliveryPreviewProps) {
   const [showPreview, setShowPreview] = useState(true);
+  const [docOpen, setDocOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -50,26 +52,50 @@ export default function DeliveryPreview({
 
   return (
     <>
-      {/* Mobile: Sticky total summary */}
-      <div className="lg:hidden mb-2 flex items-center justify-between rounded-lg bg-surface px-4 py-2.5 shadow-sm">
-        <div className="text-sm text-muted">
-          {quantity} ks{freeQuantity > 0 ? ` + ${freeQuantity} grátis` : ""}
-        </div>
-        <div className="text-lg font-bold">{formatEUR(calculations.totalWithVat)}</div>
-      </div>
-
       {/* Mobile: Toggle button + collapsible scaled preview */}
       <div className="lg:hidden" ref={containerRef}>
-        <button
-          type="button"
-          onClick={() => setShowPreview(!showPreview)}
-          className="mb-3 min-h-[44px] w-full rounded-xl bg-surface px-4 py-3 text-sm font-bold shadow-md transition-colors hover:bg-surface-alt"
-        >
-          {showPreview ? "Skryť náhľad ▲" : "Zobraziť náhľad dokumentu ▼"}
-        </button>
+        <div className="mb-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setShowPreview(!showPreview)}
+            className="flex min-h-[48px] flex-1 items-center justify-between rounded-lg border border-border bg-surface px-4 text-sm font-bold text-muted transition-colors hover:text-foreground"
+            aria-expanded={showPreview}
+          >
+            <span>Náhľad dokumentu</span>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className={`transition-transform duration-200 ${showPreview ? "rotate-180" : ""}`}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDocOpen(true)}
+            aria-label="Zväčšiť dokument"
+            className="flex min-h-[48px] w-12 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted transition-colors hover:border-border-strong hover:text-foreground active:scale-95"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            </svg>
+          </button>
+        </div>
 
         {showPreview && (
-          <div className="mb-4 overflow-hidden rounded-xl bg-border shadow-md">
+          <button
+            type="button"
+            onClick={() => setDocOpen(true)}
+            aria-label="Otvoriť dokument na celú obrazovku"
+            className="mb-4 block w-full cursor-zoom-in overflow-hidden rounded-lg border border-border bg-surface-alt"
+          >
             <div
               style={{ height: 842 * scale + 16 }}
               className="overflow-hidden p-2"
@@ -97,13 +123,19 @@ export default function DeliveryPreview({
                 />
               </div>
             </div>
-          </div>
+          </button>
         )}
       </div>
 
       {/* Desktop: Always visible */}
       <div className="hidden lg:block">
-        <div className="rounded-xl bg-border p-4.5 shadow-md">
+        <div className="rounded-lg border border-border bg-surface-alt p-4">
+          <button
+            type="button"
+            onClick={() => setDocOpen(true)}
+            className="block w-full cursor-zoom-in"
+            aria-label="Otvoriť dokument na celú obrazovku"
+          >
           <div
             className="min-h-[980px] bg-white p-6 text-black"
             role="document"
@@ -122,8 +154,24 @@ export default function DeliveryPreview({
               signatureData={signatureData}
             />
           </div>
+          </button>
         </div>
       </div>
+
+      <DocumentModal
+        open={docOpen}
+        onClose={() => setDocOpen(false)}
+        supplier={supplier}
+        selectedCompany={selectedCompany}
+        customerName={customerName}
+        deliveryNumber={deliveryNumber}
+        date={date}
+        quantity={quantity}
+        freeQuantity={freeQuantity}
+        calculations={calculations}
+        priceWithVat={priceWithVat}
+        signatureData={signatureData}
+      />
     </>
   );
 }

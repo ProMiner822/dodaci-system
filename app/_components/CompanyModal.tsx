@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Company } from "@/lib/types";
 import { formatEUR, formatDateSK, todayISO } from "@/lib/formatting";
+import { btn } from "@/lib/styles";
 
 interface CompanyModalProps {
   open: boolean;
@@ -13,7 +14,7 @@ interface CompanyModalProps {
 }
 
 const inputClasses =
-  "w-full min-h-[44px] rounded-lg border bg-surface px-3 py-3 text-base text-foreground placeholder:text-muted transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
+  "w-full min-h-[44px] rounded border bg-surface-alt px-3 py-3 text-base text-foreground placeholder:text-muted/70 transition-[border-color,box-shadow] focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-accent/35";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -116,7 +117,7 @@ export default function CompanyModal({
   return (
     <dialog
       ref={dialogRef}
-      className="dialog-bottom-sheet w-full max-w-md rounded-t-2xl bg-surface text-foreground shadow-xl lg:rounded-2xl"
+      className="dialog-bottom-sheet w-full max-w-md rounded-t-lg border border-border bg-surface text-foreground shadow-xl lg:rounded-lg"
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -332,14 +333,14 @@ export default function CompanyModal({
             <button
               type="button"
               onClick={onClose}
-              className="min-h-[40px] rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-border/30 active:scale-[0.98]"
+              className={`${btn.secondary} min-h-[40px] px-4 py-2 text-sm`}
             >
               Zrušiť
             </button>
             <button
               type="button"
               onClick={handleSubmit}
-              className="min-h-[40px] rounded-lg bg-accent px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-accent-hover active:scale-[0.98]"
+              className={`${btn.primary} min-h-[40px] px-4 py-2 text-sm`}
             >
               {isEdit ? "Uložiť" : "Pridať"}
             </button>
