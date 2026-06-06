@@ -19,5 +19,9 @@ export function formatDateSK(dateStr: string): string {
 }
 
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  // en-CA formats as YYYY-MM-DD; pin to Slovak timezone so the date doesn't
+  // roll a day early near midnight (toISOString would use UTC).
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bratislava",
+  }).format(new Date());
 }

@@ -213,7 +213,8 @@ export default function DeliveryForm() {
             state: {
               selectedCompanyId: data.selectedCompanyId ?? undefined,
               deliveryNumber: data.deliveryNumber ?? undefined,
-              date: data.date ?? undefined,
+              // Intentionally do NOT restore `date` — it must always default to
+              // today, never a stale value from a previous day's draft.
               customerName: data.customerName ?? undefined,
               customerEmail: data.customerEmail ?? undefined,
               quantity: typeof data.quantity === "number" ? data.quantity : undefined,
@@ -260,7 +261,6 @@ export default function DeliveryForm() {
       localStorage.setItem(STORAGE_KEYS.form, JSON.stringify({
         selectedCompanyId: state.selectedCompanyId,
         deliveryNumber: state.deliveryNumber,
-        date: state.date,
         customerName: state.customerName,
         customerEmail: state.customerEmail,
         quantity: state.quantity,
