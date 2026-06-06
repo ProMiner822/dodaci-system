@@ -54,6 +54,14 @@ export async function addHistory(entry: HistoryEntry): Promise<void> {
   });
 }
 
+// Most recent successful delivery for a customer (history is newest-first).
+// Legacy entries predate the status field, so treat anything not "failed" as
+// sent — matching summarizeByCustomer.
+export async function lastSentForCompany(company: string): Promise<HistoryEntry | null> {
+  const history = await getHistory();
+  return history.find((e) => e.company === company && e.status !== "failed") ?? null;
+}
+
 // --- Per-delivery full payload (for re-send / download) ---
 
 function deliveryKey(deliveryNumber: string): string {

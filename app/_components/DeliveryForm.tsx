@@ -166,6 +166,7 @@ export default function DeliveryForm() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastOrder, setLastOrder] = useState<{ quantity: number; freeQuantity: number } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedRef = useRef(false);
   const isSendingRef = useRef(false);
@@ -284,6 +285,27 @@ export default function DeliveryForm() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [state.selectedCompanyId, state.deliveryNumber, state.date, state.customerName, state.customerEmail, state.quantity, state.freeQuantity, state.note, state.signatureData]);
+
+  // Load the customer's last order so we can offer "repeat last order".
+  useEffect(() => {
+    if (state.screen !== "delivery-form" || !state.customerName) {
+      setLastOrder(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/history/last?company=${encodeURIComponent(state.customerName)}`)
+      .then((r) => (r.ok ? r.json() : { last: null }))
+      .then((d) => {
+        if (cancelled) return;
+        setLastOrder(
+          d.last && d.last.quantity > 0
+            ? { quantity: d.last.quantity, freeQuantity: d.last.freeQuantity ?? 0 }
+            : null,
+        );
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [state.screen, state.customerName]);
 
   // Warn before tab close if form has data
   useEffect(() => {
@@ -594,6 +616,20 @@ export default function DeliveryForm() {
                 customerEmail={state.customerEmail}
                 onChangeCompany={() => viewTransition(() => dispatch({ type: "SET_SCREEN", screen: "customer-select" }), true)}
               />
+
+              {lastOrder && state.quantity === 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    dispatch({ type: "SET_FIELD", field: "quantity", value: lastOrder.quantity });
+                    dispatch({ type: "SET_FIELD", field: "freeQuantity", value: lastOrder.freeQuantity });
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm font-bold text-accent transition-colors hover:bg-accent/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.99]"
+                >
+                  ↻ Zopakovať posledný: {lastOrder.quantity} ks
+                  {lastOrder.freeQuantity > 0 ? ` (+${lastOrder.freeQuantity} grátis)` : ""}
+                </button>
+              )}
 
               <ItemsPanel
                 deliveryNumber={state.deliveryNumber}
