@@ -473,6 +473,7 @@ export default function DeliveryForm() {
           vatAmount: calculations.vatAmount,
           totalWithVat: calculations.totalWithVat,
           signatureData: state.signatureData,
+          ccEmails: selectedCompany?.ccEmails ?? "",
         }),
       });
 

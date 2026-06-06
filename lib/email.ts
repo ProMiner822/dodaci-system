@@ -4,6 +4,18 @@ import { escapeHtml } from "@/lib/sanitize";
 import { generateDeliveryPDF } from "@/lib/pdf";
 import type { DeliveryPayload } from "@/lib/types";
 
+// Build the CC list from the global EMAIL_CC plus any per-customer extras,
+// keeping only valid-looking addresses and removing duplicates.
+export function buildCcList(extra?: string): string[] {
+  const raw = `${process.env.EMAIL_CC ?? ""},${extra ?? ""}`;
+  const seen = new Set<string>();
+  for (const part of raw.split(/[,;]/)) {
+    const addr = part.trim();
+    if (addr && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) seen.add(addr);
+  }
+  return [...seen];
+}
+
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
@@ -23,13 +35,13 @@ export async function sendDeliveryEmail(
   const pdfBuffer = Buffer.from(pdfBytes);
 
   const emailFrom = process.env.EMAIL_FROM ?? process.env.GMAIL_USER ?? "";
-  const emailCc = process.env.EMAIL_CC ?? "";
+  const cc = buildCcList(payload.ccEmails);
   const safeDeliveryNumber = payload.deliveryNumber.replace(/[^a-zA-Z0-9\-]/g, "");
 
   const result = await transporter.sendMail({
     from: emailFrom,
     to: payload.customerEmail,
-    cc: emailCc || undefined,
+    cc: cc.length ? cc : undefined,
     subject: `Avokádo dodací list ${formatDateSK(payload.date)}`,
     html: `
       <p>Dobrý deň,</p>

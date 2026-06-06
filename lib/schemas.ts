@@ -24,6 +24,7 @@ export const deliveryPayloadSchema = z.object({
   vatAmount: z.number().min(0).max(10_000_000),
   totalWithVat: z.number().min(0).max(10_000_000),
   signatureData: z.string().min(1, "Signature is required"),
+  ccEmails: z.string().max(500).default(""),
 });
 
 export type DeliveryPayloadInput = z.infer<typeof deliveryPayloadSchema>;

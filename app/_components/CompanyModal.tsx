@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Company } from "@/lib/types";
+import { formatEUR, formatDateSK, todayISO } from "@/lib/formatting";
 
 interface CompanyModalProps {
   open: boolean;
@@ -30,6 +31,7 @@ export default function CompanyModal({
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [ccEmails, setCcEmails] = useState("");
   const [address, setAddress] = useState("");
   const [ico, setIco] = useState("");
   const [dic, setDic] = useState("");
@@ -45,6 +47,7 @@ export default function CompanyModal({
       if (!dialog.open) dialog.showModal();
       setName(initialData?.name ?? "");
       setEmail(initialData?.email ?? "");
+      setCcEmails(initialData?.ccEmails ?? "");
       setAddress(initialData?.address ?? "");
       setIco(initialData?.ico ?? "");
       setDic(initialData?.dic ?? "");
@@ -76,6 +79,12 @@ export default function CompanyModal({
     if (!name.trim()) newErrors.name = "Názov firmy je povinný";
     if (!email.trim() || !EMAIL_RE.test(email))
       newErrors.email = "Zadajte platný email";
+    const ccInvalid = ccEmails
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .some((addr) => !EMAIL_RE.test(addr));
+    if (ccInvalid) newErrors.ccEmails = "Niektorý z CC emailov je neplatný";
     const price = parseFloat(priceWithVat);
     if (isNaN(price) || price <= 0)
       newErrors.priceWithVat = "Cena musí byť väčšia ako 0";
@@ -85,14 +94,20 @@ export default function CompanyModal({
 
   function handleSubmit() {
     if (!validate()) return;
+    const newPrice = parseFloat(priceWithVat);
+    const priceChanged = !!initialData && initialData.priceWithVat !== newPrice;
     onSave({
       name: name.trim(),
       email: email.trim(),
+      ccEmails: ccEmails.trim(),
       address: address.trim(),
       ico: ico.trim(),
       dic: dic.trim(),
       icdph: icdph.trim(),
-      priceWithVat: parseFloat(priceWithVat),
+      priceWithVat: newPrice,
+      // Record the prior price when it changes; otherwise carry forward.
+      previousPrice: priceChanged ? initialData!.priceWithVat : initialData?.previousPrice,
+      priceChangedAt: priceChanged ? todayISO() : initialData?.priceChangedAt,
     });
   }
 
@@ -178,6 +193,30 @@ export default function CompanyModal({
           </div>
 
           <div>
+            <label htmlFor="modal-cc" className="mb-1.5 block text-sm font-bold">
+              Kópia e-mailu (CC) <span className="font-normal text-muted">— nepovinné</span>
+            </label>
+            <input
+              id="modal-cc"
+              className={`${inputClasses} ${errors.ccEmails ? "border-danger" : "border-border"}`}
+              value={ccEmails}
+              onChange={(e) => setCcEmails(e.target.value)}
+              placeholder="napr. manazer@firma.sk, uctovnik@firma.sk"
+              aria-invalid={!!errors.ccEmails}
+              aria-describedby={errors.ccEmails ? "modal-cc-error" : undefined}
+            />
+            {errors.ccEmails ? (
+              <span id="modal-cc-error" role="alert" className="mt-1 block text-xs text-danger">
+                {errors.ccEmails}
+              </span>
+            ) : (
+              <span className="mt-1 block text-xs text-muted">
+                Viac adries oddeľte čiarkou. Pridajú sa do kópie každého dodacieho listu.
+              </span>
+            )}
+          </div>
+
+          <div>
             <label htmlFor="modal-address" className="mb-1.5 block text-sm font-bold">
               Adresa
             </label>
@@ -246,6 +285,14 @@ export default function CompanyModal({
                 {errors.priceWithVat}
               </span>
             )}
+            {!errors.priceWithVat &&
+              initialData?.previousPrice != null &&
+              initialData?.priceChangedAt && (
+                <span className="mt-1 block text-xs text-muted">
+                  Predtým {formatEUR(initialData.previousPrice)} · zmenené{" "}
+                  {formatDateSK(initialData.priceChangedAt)}
+                </span>
+              )}
           </div>
         </div>
 

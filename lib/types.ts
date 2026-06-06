@@ -7,6 +7,11 @@ export interface Company {
   icdph: string;
   dic: string;
   address: string;
+  // Extra recipients copied on every delivery email (comma/semicolon list).
+  ccEmails?: string;
+  // Light price history: the prior price and when it changed.
+  previousPrice?: number;
+  priceChangedAt?: string;
 }
 
 export interface Supplier {
@@ -36,6 +41,7 @@ export interface DeliveryPayload {
   vatAmount: number;
   totalWithVat: number;
   signatureData: string;
+  ccEmails?: string;
 }
 
 // Lightweight summary stored in history.json (no signature) so the list loads
