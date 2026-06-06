@@ -768,7 +768,7 @@ export default function DeliveryForm() {
                 </div>
               </div>
 
-              <DeliveryHistory />
+              <DeliveryHistory company={state.customerName} />
             </div>
           </div>
         )}

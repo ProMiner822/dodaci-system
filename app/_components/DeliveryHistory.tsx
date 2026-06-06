@@ -1,9 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import HistoryRow from "./HistoryRow";
 import type { HistoryEntry } from "@/lib/types";
+
+// `company` scopes the list to one customer (the detail screen). Without it the
+// list is global (currently unused, but keeps the component reusable).
+interface DeliveryHistoryProps {
+  company?: string;
+}
 
 async function fetchHistory(): Promise<HistoryEntry[]> {
   try {
@@ -15,7 +21,7 @@ async function fetchHistory(): Promise<HistoryEntry[]> {
   }
 }
 
-export default function DeliveryHistory() {
+export default function DeliveryHistory({ company }: DeliveryHistoryProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -31,7 +37,13 @@ export default function DeliveryHistory() {
     return () => window.removeEventListener("delivery-sent", handleRefresh);
   }, []);
 
-  if (entries.length === 0) return null;
+  // On a customer's detail screen, show only that customer's deliveries.
+  const visible = useMemo(
+    () => (company ? entries.filter((e) => e.company === company) : entries),
+    [entries, company],
+  );
+
+  if (visible.length === 0) return null;
 
   return (
     <div className="border-t border-border">
@@ -42,8 +54,8 @@ export default function DeliveryHistory() {
         aria-expanded={isOpen}
       >
         <span className="flex items-center gap-2">
-          História
-          <span className="font-mono text-xs tabular-nums">{entries.length}</span>
+          {company ? "História odberateľa" : "História"}
+          <span className="font-mono text-xs tabular-nums">{visible.length}</span>
         </span>
         <svg
           width="16"
@@ -63,7 +75,7 @@ export default function DeliveryHistory() {
 
       {isOpen && (
         <div className="divide-y divide-border border-t border-border px-4">
-          {entries.slice(0, 20).map((entry, i) => (
+          {visible.slice(0, 20).map((entry, i) => (
             <HistoryRow key={`${entry.deliveryNumber}-${i}`} entry={entry} />
           ))}
           <Link
