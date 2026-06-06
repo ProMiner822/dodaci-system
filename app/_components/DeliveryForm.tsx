@@ -16,6 +16,8 @@ import DeliveryHistory from "./DeliveryHistory";
 import ReviewSheet from "./ReviewSheet";
 import StickyBottomBar from "./StickyBottomBar";
 import { useToast } from "./Toast";
+import { enqueue, flushOutbox } from "@/lib/outbox";
+import OutboxStatus from "./OutboxStatus";
 
 // --- State & Reducer ---
 
@@ -286,6 +288,20 @@ export default function DeliveryForm() {
     };
   }, [state.selectedCompanyId, state.deliveryNumber, state.date, state.customerName, state.customerEmail, state.quantity, state.freeQuantity, state.note, state.signatureData]);
 
+  // Register the service worker (offline shell) and flush any queued sends on
+  // load and whenever connectivity returns.
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+    flushOutbox();
+    function onOnline() {
+      flushOutbox();
+    }
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
   // Load the customer's last order so we can offer "repeat last order".
   useEffect(() => {
     if (state.screen !== "delivery-form" || !state.customerName) {
@@ -438,19 +454,56 @@ export default function DeliveryForm() {
     isSendingRef.current = true;
 
     setIsSendingEmail(true);
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    let deliveryNumber = state.deliveryNumber;
+    let needsNumber = false;
+
     try {
       // Commit the delivery number now (unless the user typed a custom one),
-      // so abandoned forms never consume a number.
-      let deliveryNumber = state.deliveryNumber;
+      // so abandoned forms never consume a number. Offline: defer minting to
+      // the flush so two queued notes can't collide on the same number.
       if (!state.numberEdited) {
-        try {
-          const res = await fetch("/api/delivery-number", { method: "POST" });
-          const data = await res.json();
-          if (data.number) {
-            deliveryNumber = data.number;
-            dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: deliveryNumber });
+        if (offline) {
+          needsNumber = true;
+        } else {
+          try {
+            const res = await fetch("/api/delivery-number", { method: "POST" });
+            const data = await res.json();
+            if (data.number) {
+              deliveryNumber = data.number;
+              dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: deliveryNumber });
+            }
+          } catch {
+            needsNumber = true;
           }
-        } catch { /* fall back to the previewed number */ }
+        }
+      }
+
+      const payload = {
+        deliveryNumber,
+        date: state.date,
+        customerName: state.customerName,
+        customerEmail: state.customerEmail,
+        address: selectedCompany?.address ?? "",
+        ico: selectedCompany?.ico ?? "",
+        icdph: selectedCompany?.icdph ?? "",
+        quantity: state.quantity,
+        freeQuantity: state.freeQuantity,
+        priceWithVat,
+        totalWithoutVat: calculations.totalWithoutVat,
+        vatAmount: calculations.vatAmount,
+        totalWithVat: calculations.totalWithVat,
+        signatureData: state.signatureData,
+        ccEmails: selectedCompany?.ccEmails ?? "",
+      };
+
+      // Offline (or we couldn't reach the counter): queue and finish.
+      if (offline || needsNumber) {
+        enqueue(payload, needsNumber);
+        setReviewOpen(false);
+        addToast("Bez pripojenia — dodací list je uložený a odošle sa po pripojení.", "success");
+        await resetForm();
+        return;
       }
 
       await saveDeliveryToGoogleSheet(deliveryNumber);
@@ -458,7 +511,34 @@ export default function DeliveryForm() {
       const response = await fetch("/api/send-delivery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.ok) {
+        // Server reachable but failed — don't lose the note; queue for retry.
+        enqueue(payload, false);
+        setReviewOpen(false);
+        addToast("Odoslanie zlyhalo — dodací list je uložený a skúsim znova.", "error");
+        await resetForm();
+        return;
+      }
+
+      // History is recorded server-side by /api/send-delivery (with real
+      // send status); just refresh the list.
+      window.dispatchEvent(new Event("delivery-sent"));
+
+      setReviewOpen(false);
+      addToast("Email s PDF bol odoslaný.", "success");
+
+      // Reset form and go back to customer selection
+      await resetForm();
+    } catch (error: unknown) {
+      // Network dropped mid-send — queue rather than lose the signed note.
+      console.error("Email error:", error instanceof Error ? error.message : error);
+      enqueue(
+        {
           deliveryNumber,
           date: state.date,
           customerName: state.customerName,
@@ -474,28 +554,12 @@ export default function DeliveryForm() {
           totalWithVat: calculations.totalWithVat,
           signatureData: state.signatureData,
           ccEmails: selectedCompany?.ccEmails ?? "",
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.ok) {
-        addToast("Email sa nepodarilo odoslať.", "error");
-        return;
-      }
-
-      // History is recorded server-side by /api/send-delivery (with real
-      // send status); just refresh the list.
-      window.dispatchEvent(new Event("delivery-sent"));
-
+        },
+        needsNumber,
+      );
       setReviewOpen(false);
-      addToast("Email s PDF bol odoslaný.", "success");
-
-      // Reset form and go back to customer selection
+      addToast("Bez pripojenia — dodací list je uložený a odošle sa po pripojení.", "success");
       await resetForm();
-    } catch (error: unknown) {
-      console.error("Email error:", error instanceof Error ? error.message : error);
-      addToast("Chyba pri odosielaní emailu.", "error");
     } finally {
       setIsSendingEmail(false);
       isSendingRef.current = false;
@@ -574,6 +638,7 @@ export default function DeliveryForm() {
       />
 
       <main id="main-content">
+        <OutboxStatus />
         {state.screen === "customer-select" ? (
           <CustomerSelect
             companies={state.companies}
