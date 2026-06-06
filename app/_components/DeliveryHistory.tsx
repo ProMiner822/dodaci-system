@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { formatEUR, formatDateSK } from "@/lib/formatting";
+import Link from "next/link";
+import HistoryRow from "./HistoryRow";
 import type { HistoryEntry } from "@/lib/types";
 
 async function fetchHistory(): Promise<HistoryEntry[]> {
@@ -46,29 +47,14 @@ export default function DeliveryHistory() {
       {isOpen && (
         <div className="mt-3 space-y-2">
           {entries.slice(0, 20).map((entry, i) => (
-            <div
-              key={`${entry.deliveryNumber}-${i}`}
-              className="flex items-center justify-between rounded-lg bg-surface-alt px-3 py-2 text-sm"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate font-medium">{entry.company}</span>
-                  {entry.status === "failed" && (
-                    <span className="shrink-0 rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-danger">
-                      Neodoslané
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-muted">
-                  {formatDateSK(entry.date)} · {entry.deliveryNumber} · {entry.quantity} ks
-                  {entry.freeQuantity > 0 ? ` + ${entry.freeQuantity} grátis` : ""}
-                </div>
-              </div>
-              <div className="ml-3 shrink-0 font-bold">
-                {formatEUR(entry.totalWithVat)}
-              </div>
-            </div>
+            <HistoryRow key={`${entry.deliveryNumber}-${i}`} entry={entry} />
           ))}
+          <Link
+            href="/archiv"
+            className="block rounded-lg px-3 py-2 text-center text-sm font-bold text-accent hover:underline"
+          >
+            Zobraziť celú históriu a súhrn →
+          </Link>
         </div>
       )}
     </div>

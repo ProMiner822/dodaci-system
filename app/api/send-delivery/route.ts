@@ -1,23 +1,10 @@
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { deliveryPayloadSchema } from "@/lib/schemas";
 import { calculateDeliveryPrices } from "@/lib/calculations";
-import { formatEUR, formatDateSK } from "@/lib/formatting";
-import { escapeHtml } from "@/lib/sanitize";
 import { VAT_RATE } from "@/lib/constants";
-import { generateDeliveryPDF } from "@/lib/pdf";
+import { sendDeliveryEmail } from "@/lib/email";
 import { addHistory, saveDelivery } from "@/lib/storage";
 import type { HistoryEntry } from "@/lib/types";
-
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
 
 export async function POST(req: Request) {
   try {
@@ -41,16 +28,6 @@ export async function POST(req: Request) {
     body.vatAmount = calc.vatAmount;
     body.totalWithVat = calc.totalWithVat;
 
-    const pdfBytes = await generateDeliveryPDF(body);
-    const pdfBuffer = Buffer.from(pdfBytes);
-
-    const emailFrom =
-      process.env.EMAIL_FROM ?? process.env.GMAIL_USER ?? "";
-    const emailCc = process.env.EMAIL_CC ?? "";
-
-    // Sanitize filename
-    const safeDeliveryNumber = body.deliveryNumber.replace(/[^a-zA-Z0-9\-]/g, "");
-
     const summary = (status: HistoryEntry["status"], extra: Partial<HistoryEntry>): HistoryEntry => ({
       deliveryNumber: body.deliveryNumber,
       date: body.date,
@@ -64,33 +41,15 @@ export async function POST(req: Request) {
     });
 
     try {
-      const result = await transporter.sendMail({
-        from: emailFrom,
-        to: body.customerEmail,
-        cc: emailCc || undefined,
-        subject: `Avokádo dodací list ${formatDateSK(body.date)}`,
-        html: `
-          <p>Dobrý deň,</p>
-          <p>v prílohe posielame dodací list <strong>${escapeHtml(body.deliveryNumber)}</strong>.</p>
-          <p>Odberateľ: ${escapeHtml(body.customerName)}</p>
-          <p>Počet kusov: ${body.quantity}</p>
-          <p>Suma spolu: ${formatEUR(body.totalWithVat)}</p>
-        `,
-        attachments: [
-          {
-            filename: `dodaci-list-${safeDeliveryNumber}.pdf`,
-            content: pdfBuffer,
-          },
-        ],
-      });
+      const { messageId } = await sendDeliveryEmail(body);
 
       if (!skipHistory) {
         // Persist the full payload (for re-send/download) and a sent summary.
         await saveDelivery(body);
-        await addHistory(summary("sent", { messageId: result.messageId }));
+        await addHistory(summary("sent", { messageId }));
       }
 
-      return NextResponse.json({ ok: true, messageId: result.messageId });
+      return NextResponse.json({ ok: true, messageId });
     } catch (sendError: unknown) {
       // Record a failed send so it's visible, and keep the payload for retry.
       if (!skipHistory) {
