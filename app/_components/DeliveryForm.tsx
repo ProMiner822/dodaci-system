@@ -25,6 +25,9 @@ interface DeliveryState {
   companies: Company[];
   selectedCompanyId: string;
   deliveryNumber: string;
+  // True once the user manually edits the number, so we don't overwrite it
+  // with a freshly-minted one at send time.
+  numberEdited: boolean;
   date: string;
   customerName: string;
   customerEmail: string;
@@ -44,6 +47,7 @@ type Action =
   | { type: "ADD_COMPANY"; company: Company }
   | { type: "DELETE_COMPANY"; id: string }
   | { type: "LOAD_STATE"; state: Partial<DeliveryState> }
+  | { type: "EDIT_DELIVERY_NUMBER"; value: string }
   | { type: "RESET_FORM"; deliveryNumber: string };
 
 function reducer(state: DeliveryState, action: Action): DeliveryState {
@@ -111,11 +115,14 @@ function reducer(state: DeliveryState, action: Action): DeliveryState {
     }
     case "LOAD_STATE":
       return { ...state, ...action.state };
+    case "EDIT_DELIVERY_NUMBER":
+      return { ...state, deliveryNumber: action.value, numberEdited: true, sheetSaved: false };
     case "RESET_FORM":
       return {
         ...state,
         screen: "customer-select",
         deliveryNumber: action.deliveryNumber,
+        numberEdited: false,
         date: todayISO(),
         customerName:
           state.companies.find((c) => c.id === state.selectedCompanyId)?.name ?? "",
@@ -138,6 +145,7 @@ function getInitialState(): DeliveryState {
     companies: [],
     selectedCompanyId: "",
     deliveryNumber: "",
+    numberEdited: false,
     date: todayISO(),
     customerName: "",
     customerEmail: "",
@@ -179,9 +187,10 @@ export default function DeliveryForm() {
   // Load data on mount: companies from API, form draft from localStorage
   useEffect(() => {
     async function init() {
-      // Fetch delivery number from server (atomic counter)
+      // Peek the next delivery number for display (does NOT increment the
+      // counter — the number is committed at send time).
       try {
-        const res = await fetch("/api/delivery-number", { method: "POST" });
+        const res = await fetch("/api/delivery-number");
         const data = await res.json();
         if (data.number) {
           dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: data.number });
@@ -317,7 +326,7 @@ export default function DeliveryForm() {
 
   // --- Actions ---
 
-  async function saveDeliveryToGoogleSheet() {
+  async function saveDeliveryToGoogleSheet(deliveryNumber = state.deliveryNumber) {
     if (state.sheetSaved) return true;
 
     try {
@@ -329,7 +338,7 @@ export default function DeliveryForm() {
           firma: state.customerName,
           pocetKs: state.quantity,
           cenaZaKsSDPH: priceWithVat,
-          cisloDodaciehoListu: state.deliveryNumber,
+          cisloDodaciehoListu: deliveryNumber,
           emailFirmy: state.customerEmail,
           podpisane: !!state.signatureData,
         }),
@@ -409,13 +418,27 @@ export default function DeliveryForm() {
 
     setIsSendingEmail(true);
     try {
-      await saveDeliveryToGoogleSheet();
+      // Commit the delivery number now (unless the user typed a custom one),
+      // so abandoned forms never consume a number.
+      let deliveryNumber = state.deliveryNumber;
+      if (!state.numberEdited) {
+        try {
+          const res = await fetch("/api/delivery-number", { method: "POST" });
+          const data = await res.json();
+          if (data.number) {
+            deliveryNumber = data.number;
+            dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: deliveryNumber });
+          }
+        } catch { /* fall back to the previewed number */ }
+      }
+
+      await saveDeliveryToGoogleSheet(deliveryNumber);
 
       const response = await fetch("/api/send-delivery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          deliveryNumber: state.deliveryNumber,
+          deliveryNumber,
           date: state.date,
           customerName: state.customerName,
           customerEmail: state.customerEmail,
@@ -440,7 +463,7 @@ export default function DeliveryForm() {
       }
 
       addHistoryEntry({
-        deliveryNumber: state.deliveryNumber,
+        deliveryNumber,
         date: state.date,
         company: state.customerName,
         quantity: state.quantity,
@@ -470,9 +493,11 @@ export default function DeliveryForm() {
   }
 
   async function resetForm() {
-    let number = `DL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-001`;
+    // Peek the next number for the fresh form (the just-sent one was already
+    // committed during send).
+    let number = `DL-${todayISO().replace(/-/g, "")}-001`;
     try {
-      const res = await fetch("/api/delivery-number", { method: "POST" });
+      const res = await fetch("/api/delivery-number");
       const data = await res.json();
       if (data.number) number = data.number;
     } catch { /* use fallback */ }
@@ -586,7 +611,7 @@ export default function DeliveryForm() {
                 priceWithVat={priceWithVat}
                 note={state.note}
                 onDeliveryNumberChange={(v) =>
-                  dispatch({ type: "SET_FIELD", field: "deliveryNumber", value: v })
+                  dispatch({ type: "EDIT_DELIVERY_NUMBER", value: v })
                 }
                 onDateChange={(v) =>
                   dispatch({ type: "SET_FIELD", field: "date", value: v })

@@ -70,29 +70,45 @@ interface CounterData {
   count: number;
 }
 
-export async function nextDeliveryNumber(): Promise<string> {
-  // Date key in Slovak time (server runs UTC) so the number's date matches the
-  // document date, which also uses Europe/Bratislava.
-  const dateKey = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Bratislava",
-  })
+// Date key in Slovak time (server runs UTC) so the number's date matches the
+// document date, which also uses Europe/Bratislava.
+function dateKeySK(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bratislava" })
     .format(new Date())
     .replace(/-/g, "");
+}
 
-  let counter: CounterData = { date: dateKey, count: 0 };
+async function readCounter(dateKey: string): Promise<CounterData> {
   try {
-    counter = (await readBlob<CounterData>(COUNTER_KEY)) ?? counter;
+    return (await readBlob<CounterData>(COUNTER_KEY)) ?? { date: dateKey, count: 0 };
   } catch {
-    // First time — start fresh
+    return { date: dateKey, count: 0 };
   }
+}
 
+function formatDeliveryNumber(dateKey: string, count: number): string {
+  return `DL-${dateKey}-${String(count).padStart(3, "0")}`;
+}
+
+// Peek the next number for display WITHOUT incrementing — so loading or
+// abandoning a form never burns a number.
+export async function peekDeliveryNumber(): Promise<string> {
+  const dateKey = dateKeySK();
+  const counter = await readCounter(dateKey);
   const nextCount = counter.date === dateKey ? counter.count + 1 : 1;
+  return formatDeliveryNumber(dateKey, nextCount);
+}
 
+// Commit the next number: increment the counter and return it. Called only at
+// send time, so the sequence has no gaps from abandoned forms.
+export async function nextDeliveryNumber(): Promise<string> {
+  const dateKey = dateKeySK();
+  const counter = await readCounter(dateKey);
+  const nextCount = counter.date === dateKey ? counter.count + 1 : 1;
   await put(COUNTER_KEY, JSON.stringify({ date: dateKey, count: nextCount }), {
     access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
   });
-
-  return `DL-${dateKey}-${String(nextCount).padStart(3, "0")}`;
+  return formatDeliveryNumber(dateKey, nextCount);
 }
