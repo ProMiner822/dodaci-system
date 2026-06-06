@@ -161,6 +161,7 @@ export default function DeliveryForm() {
   const [isLoading, setIsLoading] = useState(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedRef = useRef(false);
+  const isSendingRef = useRef(false);
   const { addToast } = useToast();
 
   const selectedCompany = useMemo(
@@ -400,6 +401,11 @@ export default function DeliveryForm() {
       addToast("Podpis zákazníka je povinný pre odoslanie", "error");
       return;
     }
+    // Re-entry guard: a fast double-tap must not send twice with the same
+    // delivery number (state updates aren't synchronous, so isSendingEmail
+    // alone can't block it).
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
 
     setIsSendingEmail(true);
     try {
@@ -454,6 +460,7 @@ export default function DeliveryForm() {
       addToast("Chyba pri odosielaní emailu.", "error");
     } finally {
       setIsSendingEmail(false);
+      isSendingRef.current = false;
     }
   }
 

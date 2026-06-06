@@ -71,11 +71,13 @@ interface CounterData {
 }
 
 export async function nextDeliveryNumber(): Promise<string> {
-  const today = new Date();
-  const y = today.getFullYear();
-  const m = String(today.getMonth() + 1).padStart(2, "0");
-  const d = String(today.getDate()).padStart(2, "0");
-  const dateKey = `${y}${m}${d}`;
+  // Date key in Slovak time (server runs UTC) so the number's date matches the
+  // document date, which also uses Europe/Bratislava.
+  const dateKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bratislava",
+  })
+    .format(new Date())
+    .replace(/-/g, "");
 
   let counter: CounterData = { date: dateKey, count: 0 };
   try {
