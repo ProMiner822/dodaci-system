@@ -1,10 +1,15 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { btn } from "@/lib/styles";
 
 interface SignatureCanvasProps {
   signatureData: string;
   onSignatureChange: (data: string) => void;
+  // Increment to request the signing surface open (fullscreen on mobile).
+  openCounter?: number;
+  // Shown above the pad in fullscreen so the signer sees what they're signing.
+  signContext?: string;
 }
 
 // Export only the drawn ink, tightly cropped to its bounding box. The drawing
@@ -68,6 +73,8 @@ function drawSignatureContain(
 export default function SignatureCanvas({
   signatureData,
   onSignatureChange,
+  openCounter = 0,
+  signContext,
 }: SignatureCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fullscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -75,19 +82,46 @@ export default function SignatureCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const historyRef = useRef<ImageData[]>([]);
   const serializeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastOpenCounter = useRef(openCounter);
+
+  // Logical (CSS-pixel) sizes; the backing store is this × devicePixelRatio so
+  // ink stays crisp on retina screens and in the exported PDF.
+  const inlineDims = useRef({ w: 0, h: 0 });
+  const fsDims = useRef({ w: 0, h: 0 });
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
 
-  function initCanvas(
+  // Size a canvas for hi-DPI: CSS box = cssW×cssH, backing = ×dpr, drawing
+  // coordinates remain in CSS pixels (ctx scaled). Returns a primed context.
+  function sizeCanvas(
+    canvas: HTMLCanvasElement,
+    cssW: number,
+    cssH: number,
+  ): CanvasRenderingContext2D | null {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    primeContext(ctx, dpr, cssW, cssH);
+    return ctx;
+  }
+
+  function primeContext(
     ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
+    dpr: number,
+    cssW: number,
+    cssH: number,
   ) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
-    ctx.lineWidth = 2;
+    ctx.fillRect(0, 0, cssW, cssH);
+    ctx.lineWidth = 2.2;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.strokeStyle = "#111111";
   }
 
@@ -116,17 +150,20 @@ export default function SignatureCanvas({
     if (historyRef.current.length === 0) return;
     const snapshot = historyRef.current.pop()!;
     ctx.putImageData(snapshot, 0, 0);
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.2;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.strokeStyle = "#111111";
   }
 
   // --- Pointer Events: unified drawing for any canvas ---
   function getPointerPos(e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement) {
+    // CSS-pixel coordinates: the context is dpr-scaled and the element is
+    // displayed at its CSS box size, so rect maps 1:1 to drawing space.
     const rect = canvas.getBoundingClientRect();
     return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     };
   }
 
@@ -173,23 +210,21 @@ export default function SignatureCanvas({
     }
   }
 
-  // --- Inline canvas: init & load signature data ---
+  // --- Inline canvas: redraw the stored signature when it changes ---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    initCanvas(ctx, canvas.width, canvas.height);
-
-    if (signatureData) {
+    const { w, h } = inlineDims.current;
+    if (w === 0) return; // resize observer hasn't sized it yet; it will draw
+    const ctx = sizeCanvas(canvas, w, h);
+    if (ctx && signatureData) {
       const img = new Image();
-      img.onload = () => drawSignatureContain(ctx, img, canvas.width, canvas.height);
+      img.onload = () => drawSignatureContain(ctx, img, w, h);
       img.src = signatureData;
     }
   }, [signatureData]);
 
-  // --- Inline canvas: resize observer ---
+  // --- Inline canvas: resize observer (sizes for hi-DPI) ---
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -197,17 +232,15 @@ export default function SignatureCanvas({
 
     const observer = new ResizeObserver((entries) => {
       const { width } = entries[0].contentRect;
-      if (width > 0) {
-        canvas.width = width;
-        canvas.height = Math.round(width / 3);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        initCanvas(ctx, canvas.width, canvas.height);
-        if (signatureData) {
-          const img = new Image();
-          img.onload = () => drawSignatureContain(ctx, img, canvas.width, canvas.height);
-          img.src = signatureData;
-        }
+      if (width <= 0) return;
+      const cssW = Math.round(width);
+      const cssH = Math.round(width / 3);
+      inlineDims.current = { w: cssW, h: cssH };
+      const ctx = sizeCanvas(canvas, cssW, cssH);
+      if (ctx && signatureData) {
+        const img = new Image();
+        img.onload = () => drawSignatureContain(ctx, img, cssW, cssH);
+        img.src = signatureData;
       }
     });
 
@@ -223,20 +256,19 @@ export default function SignatureCanvas({
     if (!canvas) return;
 
     const parent = canvas.parentElement;
-    if (parent) {
-      const rect = parent.getBoundingClientRect();
-      canvas.width = Math.floor(rect.width);
-      canvas.height = Math.floor(rect.height);
-    }
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const cssW = Math.floor(rect.width);
+    const cssH = Math.floor(rect.height);
+    fsDims.current = { w: cssW, h: cssH };
 
-    const ctx = canvas.getContext("2d");
+    const ctx = sizeCanvas(canvas, cssW, cssH);
     if (!ctx) return;
-    initCanvas(ctx, canvas.width, canvas.height);
     historyRef.current = [];
 
     if (signatureData) {
       const img = new Image();
-      img.onload = () => drawSignatureContain(ctx, img, canvas.width, canvas.height);
+      img.onload = () => drawSignatureContain(ctx, img, cssW, cssH);
       img.src = signatureData;
     }
   }, [isFullscreen, signatureData]);
@@ -258,15 +290,27 @@ export default function SignatureCanvas({
     return () => mq.removeEventListener("change", handler);
   }, []);
 
+  // --- React to external "open signing surface" requests ---
+  useEffect(() => {
+    if (openCounter === lastOpenCounter.current) return;
+    lastOpenCounter.current = openCounter;
+    if (isDesktop) {
+      const canvas = canvasRef.current;
+      canvas?.scrollIntoView({ behavior: "smooth", block: "center" });
+      canvas?.focus();
+    } else {
+      setIsFullscreen(true);
+    }
+  }, [openCounter, isDesktop]);
+
   // --- Inline actions ---
   function clearSignature() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const { w, h } = inlineDims.current;
+    if (w === 0) return;
+    sizeCanvas(canvas, w, h);
     historyRef.current = [];
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    initCanvas(ctx, canvas.width, canvas.height);
     onSignatureChange("");
   }
 
@@ -289,11 +333,10 @@ export default function SignatureCanvas({
   function fsClearSignature() {
     const canvas = fullscreenCanvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const { w, h } = fsDims.current;
+    if (w === 0) return;
+    sizeCanvas(canvas, w, h);
     historyRef.current = [];
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    initCanvas(ctx, canvas.width, canvas.height);
   }
 
   function fsUndo() {
@@ -315,8 +358,22 @@ export default function SignatureCanvas({
   }
 
   return (
-    <div className="rounded-xl bg-surface p-4 shadow-md sm:p-5">
-      <h2 className="mb-3 text-lg font-bold">Podpis zákazníka</h2>
+    <div className="p-4 sm:p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-muted">
+          Podpis zákazníka
+        </h2>
+        {signatureData ? (
+          <span key="signed" className="swap-in inline-flex items-center gap-1.5 text-xs font-bold text-success">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Podpísané
+          </span>
+        ) : (
+          <span className="text-xs font-semibold text-muted">Povinné</span>
+        )}
+      </div>
 
       {/* Desktop: inline canvas with Pointer Events */}
       {isDesktop && (
@@ -326,7 +383,7 @@ export default function SignatureCanvas({
               ref={canvasRef}
               width={560}
               height={180}
-              className="w-full cursor-crosshair touch-none rounded-lg border-2 border-dashed border-border bg-white"
+              className="w-full cursor-crosshair touch-none rounded border-2 border-dashed border-border-strong bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               aria-label="Oblasť pre kreslenie podpisu zákazníka"
               tabIndex={0}
               onPointerDown={(e) => handlePointerDown(e, canvasRef)}
@@ -339,14 +396,14 @@ export default function SignatureCanvas({
             <button
               type="button"
               onClick={inlineUndo}
-              className="min-h-[44px] flex-1 rounded-lg border border-border bg-surface-alt px-3.5 py-3 font-bold transition-colors hover:bg-border/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.98]"
+              className={`${btn.secondary} min-h-[44px] flex-1 px-3.5 py-3`}
             >
               Späť
             </button>
             <button
               type="button"
               onClick={clearSignature}
-              className="min-h-[44px] flex-1 rounded-lg border border-border bg-surface-alt px-3.5 py-3 font-bold transition-colors hover:bg-border/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.98]"
+              className={`${btn.secondary} min-h-[44px] flex-1 px-3.5 py-3`}
             >
               Vymazať podpis
             </button>
@@ -362,13 +419,13 @@ export default function SignatureCanvas({
               <img
                 src={signatureData}
                 alt="Podpis"
-                className="w-full rounded-xl border border-border bg-white object-contain p-2"
+                className="w-full rounded border border-border bg-white object-contain p-2"
                 style={{ maxHeight: 120 }}
               />
               <button
                 type="button"
                 onClick={clearSignature}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg bg-white/80 text-muted hover:bg-border/30 hover:text-danger"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded bg-white/80 text-muted hover:bg-border/30 hover:text-danger"
                 aria-label="Vymazať podpis"
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -380,7 +437,7 @@ export default function SignatureCanvas({
           <button
             type="button"
             onClick={openFullscreen}
-            className="min-h-[48px] w-full rounded-xl bg-accent px-4 py-3 font-bold text-white transition-colors hover:bg-accent/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.98]"
+            className={`${btn.primary} min-h-[48px] w-full px-4 py-3`}
           >
             {signatureData ? "Podpísať znova" : "Podpísať"}
           </button>
@@ -402,12 +459,15 @@ export default function SignatureCanvas({
           aria-modal="true"
           aria-label="Podpis na celú obrazovku"
         >
-          <div className="flex items-center justify-center px-4 pt-4 pb-2">
+          <div className="flex flex-col items-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-2 text-center">
             <h3 className="text-lg font-bold text-white">Podpis zákazníka</h3>
+            {signContext && (
+              <p className="mt-1 font-mono text-sm text-white/70 tabular-nums">{signContext}</p>
+            )}
           </div>
 
           <div className="flex-1 px-4 pb-2">
-            <div className="h-full w-full overflow-hidden rounded-xl bg-white">
+            <div className="relative h-full w-full overflow-hidden rounded-lg bg-white">
               <canvas
                 ref={fullscreenCanvasRef}
                 className="h-full w-full cursor-crosshair touch-none"
@@ -421,25 +481,25 @@ export default function SignatureCanvas({
             </div>
           </div>
 
-          <div className="flex gap-3 px-4 pb-6 pt-2">
+          <div className="flex gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
             <button
               type="button"
               onClick={fsUndo}
-              className="min-h-[44px] flex-1 rounded-lg border border-white/20 bg-white/10 px-3.5 py-3 font-bold text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98]"
+              className="min-h-[48px] flex-1 rounded-lg border border-white/25 bg-white/10 px-3.5 py-3 font-bold text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98]"
             >
               Späť
             </button>
             <button
               type="button"
               onClick={fsClearSignature}
-              className="min-h-[44px] flex-1 rounded-lg bg-red-600 px-3.5 py-3 font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 active:scale-[0.98]"
+              className="min-h-[48px] flex-1 rounded-lg border border-white/25 bg-transparent px-3.5 py-3 font-bold text-white transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98]"
             >
               Vymazať
             </button>
             <button
               type="button"
               onClick={fsDone}
-              className="min-h-[44px] flex-1 rounded-lg bg-accent px-3.5 py-3 font-bold text-white transition-colors hover:bg-accent/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.98]"
+              className="min-h-[48px] flex-[1.4] rounded-lg bg-accent px-3.5 py-3 font-bold text-accent-ink transition-colors hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.98]"
             >
               Hotovo
             </button>

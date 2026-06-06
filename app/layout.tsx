@@ -1,12 +1,28 @@
 import type { Metadata, Viewport } from "next";
+import { Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const hanken = Hanken_Grotesk({
+  subsets: ["latin", "latin-ext"],
+  variable: "--font-hanken",
+  display: "swap",
+});
+
+const jetbrains = JetBrains_Mono({
+  subsets: ["latin", "latin-ext"],
+  variable: "--font-jetbrains",
+  display: "swap",
+});
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#2563eb",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f4ee" },
+    { media: "(prefers-color-scheme: dark)", color: "#1c1b18" },
+  ],
 };
 
 export const metadata: Metadata = {
@@ -27,7 +43,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="sk" suppressHydrationWarning>
+    <html
+      lang="sk"
+      suppressHydrationWarning
+      className={`${hanken.variable} ${jetbrains.variable}`}
+    >
       <head>
         <script
           dangerouslySetInnerHTML={{

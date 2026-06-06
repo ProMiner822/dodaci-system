@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { formatDateSK } from "@/lib/formatting";
+import { formatDateSK, formatEUR, formatNum } from "@/lib/formatting";
+import { inputClass } from "@/lib/styles";
+import { PRODUCT_NAME } from "@/lib/constants";
 import QuantityStepper from "./QuantityStepper";
 
 interface ItemsPanelProps {
@@ -37,15 +39,20 @@ export default function ItemsPanel({
 }: ItemsPanelProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const inputClass = (field: string) =>
-    `w-full min-h-[44px] rounded-lg border bg-surface px-3 py-3 text-base text-foreground placeholder:text-muted transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 ${
-      errors[field] ? "border-danger" : "border-border"
-    }`;
+  const lineTotal = quantity * priceWithVat;
 
   return (
-    <div className="rounded-xl bg-surface p-4 shadow-md sm:p-5">
-      {/* Quantity steppers — prominent */}
-      <div className="py-2">
+    <div>
+      {/* Product line context */}
+      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+        <span className="text-sm font-bold">{PRODUCT_NAME}</span>
+        <span className="font-mono text-xs text-muted tabular-nums">
+          {formatNum(priceWithVat)} € / ks
+        </span>
+      </div>
+
+      {/* Hero: paid quantity */}
+      <div className="px-4 pt-5 pb-4">
         <QuantityStepper
           value={quantity}
           onChange={onQuantityChange}
@@ -53,10 +60,23 @@ export default function ItemsPanel({
           label="Platené (ks)"
           error={errors.quantity}
           size="lg"
+          quickAdd={[10, 25, 50]}
         />
+
+        {/* Live line readout */}
+        {quantity > 0 && (
+          <div className="mt-4 flex items-center justify-center gap-2 font-mono text-sm text-muted tabular-nums">
+            <span>{formatNum(quantity)} ks</span>
+            <span className="text-border-strong">×</span>
+            <span>{formatNum(priceWithVat)} €</span>
+            <span className="text-border-strong">=</span>
+            <span className="font-bold text-foreground">{formatEUR(lineTotal)}</span>
+          </div>
+        )}
       </div>
 
-      <div className="mt-4 border-t border-border pt-4">
+      {/* Grátis */}
+      <div className="border-t border-border px-4 py-4">
         <QuantityStepper
           value={freeQuantity}
           onChange={onFreeQuantityChange}
@@ -67,11 +87,11 @@ export default function ItemsPanel({
       </div>
 
       {/* Collapsible details */}
-      <div className="mt-4 border-t border-border pt-3">
+      <div className="border-t border-border">
         <button
           type="button"
           onClick={() => setDetailsOpen(!detailsOpen)}
-          className="flex w-full min-h-[44px] items-center justify-between text-sm font-bold text-muted"
+          className="flex min-h-[48px] w-full items-center justify-between px-4 text-sm font-bold text-muted transition-colors hover:text-foreground"
           aria-expanded={detailsOpen}
         >
           <span>Podrobnosti</span>
@@ -96,15 +116,15 @@ export default function ItemsPanel({
           style={{ gridTemplateRows: detailsOpen ? "1fr" : "0fr" }}
         >
           <div className="overflow-hidden">
-            <div className="pt-3 space-y-3">
+            <div className="space-y-3 px-4 pb-4 pt-1">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label htmlFor="delivery-number" className="mb-1.5 block text-sm font-bold">
+                  <label htmlFor="delivery-number" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted">
                     Číslo dodacieho listu
                   </label>
                   <input
                     id="delivery-number"
-                    className={inputClass("deliveryNumber")}
+                    className={`${inputClass(errors.deliveryNumber)} font-mono`}
                     value={deliveryNumber}
                     onChange={(e) => onDeliveryNumberChange(e.target.value)}
                     aria-invalid={!!errors.deliveryNumber}
@@ -118,13 +138,13 @@ export default function ItemsPanel({
                 </div>
 
                 <div>
-                  <label htmlFor="delivery-date" className="mb-1.5 block text-sm font-bold">
+                  <label htmlFor="delivery-date" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted">
                     Dátum
                   </label>
                   <input
                     id="delivery-date"
                     type="date"
-                    className={inputClass("date")}
+                    className={`${inputClass(errors.date)} font-mono`}
                     value={date}
                     onChange={(e) => onDateChange(e.target.value)}
                   />
@@ -133,7 +153,7 @@ export default function ItemsPanel({
               </div>
 
               <div>
-                <label htmlFor="price-with-vat" className="mb-1.5 block text-sm font-bold">
+                <label htmlFor="price-with-vat" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted">
                   Cena za kus s DPH
                 </label>
                 <input
@@ -141,22 +161,22 @@ export default function ItemsPanel({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
-                  className={inputClass("priceWithVat")}
+                  className={`${inputClass(errors.priceWithVat)} font-mono`}
                   value={priceWithVat || ""}
                   onChange={(e) => onPriceChange(e.target.value === "" ? 0 : Number(e.target.value))}
                 />
               </div>
 
               <div>
-                <label htmlFor="note" className="mb-1.5 block text-sm font-bold">
+                <label htmlFor="note" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted">
                   Poznámka
                 </label>
                 <input
                   id="note"
-                  className={inputClass("note")}
+                  className={inputClass(errors.note)}
                   value={note}
                   onChange={(e) => onNoteChange(e.target.value)}
-                  placeholder="Poznámka k dodávke..."
+                  placeholder="Poznámka k dodávke…"
                 />
               </div>
             </div>

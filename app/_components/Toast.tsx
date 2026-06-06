@@ -53,14 +53,14 @@ function ToastItem({
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-lg px-4 py-3.5 text-sm font-medium shadow-lg transition-all duration-200 ease-out ${
-        isVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+      className={`flex items-center gap-3 rounded-lg border px-4 py-3.5 text-sm font-semibold shadow-[var(--elev-2)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        isVisible ? "translate-y-0 opacity-100 blur-0" : "translate-y-2 opacity-0 blur-[3px]"
       } ${
         toast.variant === "success"
-          ? "bg-success-bg text-success"
+          ? "border-success/30 bg-success-bg text-success"
           : toast.variant === "error"
-            ? "bg-danger-bg text-danger"
-            : "bg-surface text-foreground"
+            ? "border-danger/30 bg-danger-bg text-danger"
+            : "border-border bg-surface text-foreground"
       }`}
     >
       {toast.variant === "success" && (
