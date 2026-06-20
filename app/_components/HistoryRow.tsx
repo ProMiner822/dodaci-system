@@ -5,10 +5,21 @@ import { formatEUR, formatDateSK } from "@/lib/formatting";
 import { useToast } from "./Toast";
 import type { HistoryEntry } from "@/lib/types";
 
-export default function HistoryRow({ entry }: { entry: HistoryEntry }) {
+export default function HistoryRow({
+  entry,
+  showDate = true,
+}: {
+  entry: HistoryEntry;
+  showDate?: boolean;
+}) {
   const { addToast } = useToast();
   const [resending, setResending] = useState(false);
   const pdfUrl = `/api/delivery/${encodeURIComponent(entry.deliveryNumber)}/pdf`;
+  const details = [
+    ...(showDate ? [formatDateSK(entry.date)] : []),
+    entry.deliveryNumber,
+    `${entry.quantity} ks${entry.freeQuantity > 0 ? ` +${entry.freeQuantity}` : ""}`,
+  ];
 
   async function handleResend() {
     if (!window.confirm(`Znova odoslať dodací list ${entry.deliveryNumber} na ${entry.company}?`)) {
@@ -47,8 +58,7 @@ export default function HistoryRow({ entry }: { entry: HistoryEntry }) {
             )}
           </div>
           <div className="mt-0.5 font-mono text-xs text-muted tabular-nums">
-            {formatDateSK(entry.date)} · {entry.deliveryNumber} · {entry.quantity} ks
-            {entry.freeQuantity > 0 ? ` +${entry.freeQuantity}` : ""}
+            {details.join(" · ")}
           </div>
         </div>
         <div className="ml-3 shrink-0 font-mono font-bold tabular-nums">

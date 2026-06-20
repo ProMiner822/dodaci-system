@@ -40,9 +40,24 @@ export function availableWeeks(entries: HistoryEntry[]): string[] {
   return [...set].sort().reverse();
 }
 
-export function weekLabel(weekISO: string): string {
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+export function monthRange(monthISO: string): { from: string; to: string } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthISO);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const from = new Date(Date.UTC(year, month - 1, 1));
+  const to = new Date(Date.UTC(year, month, 0));
+  return { from: isoDate(from), to: isoDate(to) };
+}
+
+export function weekRange(weekISO: string): { from: string; to: string } | null {
   const match = /^(\d{4})-W(\d{2})$/.exec(weekISO);
-  if (!match) return weekISO;
+  if (!match) return null;
 
   const year = Number(match[1]);
   const week = Number(match[2]);
@@ -53,6 +68,17 @@ export function weekLabel(weekISO: string): string {
 
   const sunday = new Date(monday);
   sunday.setUTCDate(monday.getUTCDate() + 6);
+
+  return { from: isoDate(monday), to: isoDate(sunday) };
+}
+
+export function weekLabel(weekISO: string): string {
+  const range = weekRange(weekISO);
+  if (!range) return weekISO;
+
+  const week = Number(weekISO.slice(-2));
+  const monday = new Date(`${range.from}T00:00:00Z`);
+  const sunday = new Date(`${range.to}T00:00:00Z`);
 
   const fmt = new Intl.DateTimeFormat("sk-SK", {
     day: "numeric",
