@@ -7,10 +7,14 @@ import { formatEUR } from "@/lib/formatting";
 import { INPUT_CLASSES, btn } from "@/lib/styles";
 import {
   availableMonths,
+  availableWeeks,
   filterEntries,
   monthOf,
   summarizeByCustomer,
   summaryToCSV,
+  weekLabel,
+  weekOf,
+  type CustomerSummary,
 } from "@/lib/history-utils";
 import type { HistoryEntry } from "@/lib/types";
 
@@ -18,6 +22,7 @@ export default function ArchiveView() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState("");
+  const [week, setWeek] = useState("");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -29,21 +34,34 @@ export default function ArchiveView() {
         setEntries(data);
         const months = availableMonths(data);
         if (months[0]) setMonth(months[0]);
+        const weeks = availableWeeks(data);
+        if (weeks[0]) setWeek(weeks[0]);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   const months = useMemo(() => availableMonths(entries), [entries]);
+  const weeks = useMemo(() => availableWeeks(entries), [entries]);
 
   const monthEntries = useMemo(
     () => entries.filter((e) => monthOf(e.date) === month),
     [entries, month],
   );
-  const summaries = useMemo(() => summarizeByCustomer(monthEntries), [monthEntries]);
+  const monthSummaries = useMemo(() => summarizeByCustomer(monthEntries), [monthEntries]);
   const monthTotal = useMemo(
-    () => summaries.reduce((s, c) => s + c.totalWithVat, 0),
-    [summaries],
+    () => monthSummaries.reduce((s, c) => s + c.totalWithVat, 0),
+    [monthSummaries],
+  );
+
+  const weekEntries = useMemo(
+    () => entries.filter((e) => weekOf(e.date) === week),
+    [entries, week],
+  );
+  const weekSummaries = useMemo(() => summarizeByCustomer(weekEntries), [weekEntries]);
+  const weekTotal = useMemo(
+    () => weekSummaries.reduce((s, c) => s + c.totalWithVat, 0),
+    [weekSummaries],
   );
 
   const filtered = useMemo(
@@ -51,14 +69,19 @@ export default function ArchiveView() {
     [entries, query, from, to],
   );
 
-  function exportCSV() {
-    const csv = summaryToCSV(summaries, month);
+  function exportCSV(
+    summaries: CustomerSummary[],
+    period: string,
+    periodName: string,
+    filename: string,
+  ) {
+    const csv = summaryToCSV(summaries, period, periodName);
     // Prepend BOM so Slovak Excel detects UTF-8.
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `suhrn-${month}.csv`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -95,79 +118,37 @@ export default function ArchiveView() {
         </div>
       ) : (
         <div className="space-y-8">
-          {/* Monthly summary */}
-          <section>
-            <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-muted">
-                Mesačný súhrn
-              </h2>
-              <select
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-                className="rounded border border-border bg-surface-alt px-2 py-1.5 font-mono text-sm tabular-nums focus:border-border-strong focus:outline-none focus:ring-2 focus:ring-accent/35"
-                aria-label="Mesiac"
-              >
-                {months.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
+          <SummarySection
+            title="Týždenný súhrn"
+            value={week}
+            options={weeks}
+            getOptionLabel={weekLabel}
+            onChange={setWeek}
+            ariaLabel="Týždeň"
+            emptyText="Žiadne dodacie listy v tomto týždni."
+            summaries={weekSummaries}
+            total={weekTotal}
+            onExport={() =>
+              exportCSV(
+                weekSummaries,
+                weekLabel(week),
+                "týždeň",
+                `suhrn-tyzden-${week}.csv`,
+              )
+            }
+          />
 
-            {summaries.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted">
-                Žiadne dodacie listy v tomto mesiaci.
-              </p>
-            ) : (
-              <div className="pt-4">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-[11px] uppercase tracking-wide text-muted">
-                        <th className="py-1.5 pr-2 font-bold">Odberateľ</th>
-                        <th className="py-1.5 px-2 text-right font-bold">DL</th>
-                        <th className="py-1.5 px-2 text-right font-bold">ks</th>
-                        <th className="py-1.5 pl-2 text-right font-bold">Suma s DPH</th>
-                      </tr>
-                    </thead>
-                    <tbody className="font-mono tabular-nums">
-                      {summaries.map((s) => (
-                        <tr key={s.company} className="border-t border-border">
-                          <td className="py-2 pr-2 font-sans font-semibold">{s.company}</td>
-                          <td className="py-2 px-2 text-right">{s.count}</td>
-                          <td className="py-2 px-2 text-right">{s.totalQuantity}</td>
-                          <td className="py-2 pl-2 text-right font-bold">
-                            {formatEUR(s.totalWithVat)}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="border-t-2 border-border-strong font-bold">
-                        <td className="py-2 pr-2 font-sans">Spolu</td>
-                        <td className="py-2 px-2 text-right">
-                          {summaries.reduce((n, s) => n + s.count, 0)}
-                        </td>
-                        <td className="py-2 px-2 text-right">
-                          {summaries.reduce((n, s) => n + s.totalQuantity, 0)}
-                        </td>
-                        <td className="py-2 pl-2 text-right">{formatEUR(monthTotal)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <button
-                  type="button"
-                  onClick={exportCSV}
-                  className={`${btn.secondary} mt-4 min-h-[44px] w-full text-sm`}
-                >
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  Exportovať CSV
-                </button>
-              </div>
-            )}
-          </section>
+          <SummarySection
+            title="Mesačný súhrn"
+            value={month}
+            options={months}
+            onChange={setMonth}
+            ariaLabel="Mesiac"
+            emptyText="Žiadne dodacie listy v tomto mesiaci."
+            summaries={monthSummaries}
+            total={monthTotal}
+            onExport={() => exportCSV(monthSummaries, month, "mesiac", `suhrn-${month}.csv`)}
+          />
 
           {/* Searchable list */}
           <section>
@@ -216,5 +197,110 @@ export default function ArchiveView() {
         </div>
       )}
     </main>
+  );
+}
+
+interface SummarySectionProps {
+  title: string;
+  value: string;
+  options: string[];
+  getOptionLabel?: (value: string) => string;
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  emptyText: string;
+  summaries: CustomerSummary[];
+  total: number;
+  onExport: () => void;
+}
+
+function SummarySection({
+  title,
+  value,
+  options,
+  getOptionLabel = (option) => option,
+  onChange,
+  ariaLabel,
+  emptyText,
+  summaries,
+  total,
+  onExport,
+}: SummarySectionProps) {
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-muted">
+          {title}
+        </h2>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="rounded border border-border bg-surface-alt px-2 py-1.5 font-mono text-sm tabular-nums focus:border-border-strong focus:outline-none focus:ring-2 focus:ring-accent/35"
+          aria-label={ariaLabel}
+        >
+          {options.length === 0 ? (
+            <option value="">-</option>
+          ) : (
+            options.map((option) => (
+              <option key={option} value={option}>
+                {getOptionLabel(option)}
+              </option>
+            ))
+          )}
+        </select>
+      </div>
+
+      {summaries.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted">{emptyText}</p>
+      ) : (
+        <div className="pt-4">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-muted">
+                  <th className="py-1.5 pr-2 font-bold">Odberateľ</th>
+                  <th className="py-1.5 px-2 text-right font-bold">DL</th>
+                  <th className="py-1.5 px-2 text-right font-bold">ks</th>
+                  <th className="py-1.5 pl-2 text-right font-bold">Suma s DPH</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono tabular-nums">
+                {summaries.map((s) => (
+                  <tr key={s.company} className="border-t border-border">
+                    <td className="py-2 pr-2 font-sans font-semibold">{s.company}</td>
+                    <td className="py-2 px-2 text-right">{s.count}</td>
+                    <td className="py-2 px-2 text-right">{s.totalQuantity}</td>
+                    <td className="py-2 pl-2 text-right font-bold">
+                      {formatEUR(s.totalWithVat)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-border-strong font-bold">
+                  <td className="py-2 pr-2 font-sans">Spolu</td>
+                  <td className="py-2 px-2 text-right">
+                    {summaries.reduce((n, s) => n + s.count, 0)}
+                  </td>
+                  <td className="py-2 px-2 text-right">
+                    {summaries.reduce((n, s) => n + s.totalQuantity, 0)}
+                  </td>
+                  <td className="py-2 pl-2 text-right">{formatEUR(total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <button
+            type="button"
+            onClick={onExport}
+            className={`${btn.secondary} mt-4 min-h-[44px] w-full text-sm`}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Exportovať CSV
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
